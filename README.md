@@ -89,20 +89,6 @@ Peer presence is temporary:
 
 ---
 
-## Module Structure
-
-```id="d1sc0v"
-modules/discovery/
-├── include/softadastra/discovery/
-│   ├── Peer.hpp
-│   ├── DiscoveryService.hpp
-│   ├── LanBeacon.hpp
-│   └── PeerRegistry.hpp
-└── src/
-```
-
----
-
 ## Core Components
 
 ### Peer
