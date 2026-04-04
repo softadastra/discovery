@@ -1,0 +1,47 @@
+{
+  "name": "discovery",
+  "namespace": "softadastra",
+  "version": "0.1.0",
+  "type": "library",
+  "include": "include",
+  "license": "MIT",
+  "description": "Peer discovery layer for Softadastra. Handles peer announcements, peer discovery, node presence, peer registry updates, and automatic detection of available nodes on local or distributed networks. Bridges transport connectivity with higher-level autonomous peer awareness.",
+  "keywords": [
+    "softadastra",
+    "discovery",
+    "peer-discovery",
+    "service-discovery",
+    "node-discovery",
+    "presence",
+    "registry",
+    "peers",
+    "network",
+    "p2p",
+    "peer-to-peer",
+    "distributed-systems",
+    "transport",
+    "sync",
+    "networking",
+    "reliability",
+    "offline-first",
+    "c++",
+    "cpp",
+    "c++20",
+    "systems",
+    "infrastructure",
+    "library"
+  ],
+  "repository": "https://github.com/softadastra/discovery",
+  "authors": [
+    {
+      "name": "Gaspard Kirira",
+      "github": "Gaspardkirira"
+    }
+  ],
+  "deps": [
+    {
+      "id": "softadastra/transport",
+      "version": "0.5.0"
+    }
+  ]
+}
