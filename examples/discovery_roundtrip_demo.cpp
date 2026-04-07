@@ -1,33 +1,17 @@
-/*
- * discovery_roundtrip_demo.cpp
- *
- * Roundtrip discovery demo in one process:
- * - node A starts transport + discovery
- * - node B starts transport + discovery
- * - both nodes probe / announce on the same discovery port
- * - both nodes poll until peers are discovered
- * - final discovered state is printed
- */
-
 #include <chrono>
 #include <cstdint>
 #include <exception>
 #include <iostream>
-#include <string>
+#include <memory>
 #include <thread>
+#include <vector>
 
-#include <softadastra/discovery/backend/UdpDiscoveryBackend.hpp>
-#include <softadastra/discovery/core/DiscoveryConfig.hpp>
-#include <softadastra/discovery/core/DiscoveryContext.hpp>
-#include <softadastra/discovery/engine/DiscoveryEngine.hpp>
-
+#include <softadastra/discovery/discovery.hpp>
 #include <softadastra/store/core/StoreConfig.hpp>
 #include <softadastra/store/engine/StoreEngine.hpp>
-
 #include <softadastra/sync/core/SyncConfig.hpp>
 #include <softadastra/sync/core/SyncContext.hpp>
 #include <softadastra/sync/engine/SyncEngine.hpp>
-
 #include <softadastra/transport/backend/TcpTransportBackend.hpp>
 #include <softadastra/transport/core/TransportConfig.hpp>
 #include <softadastra/transport/core/TransportContext.hpp>
@@ -53,10 +37,8 @@ namespace
     transport::backend::TcpTransportBackend transport_backend;
     transport::engine::TransportEngine transport_engine;
 
-    discovery::core::DiscoveryConfig discovery_config;
-    discovery::core::DiscoveryContext discovery_context;
-    discovery::backend::UdpDiscoveryBackend discovery_backend;
-    discovery::engine::DiscoveryEngine discovery_engine;
+    discovery::DiscoveryOptions discovery_options;
+    discovery::DiscoveryService discovery;
 
     DemoNode(const std::string &id,
              std::uint16_t tport,
@@ -72,10 +54,8 @@ namespace
           transport_context(make_transport_context(sync, transport_config)),
           transport_backend(transport_config),
           transport_engine(transport_context, transport_backend),
-          discovery_config(make_discovery_config(id, tport, dport)),
-          discovery_context(make_discovery_context(transport_engine, discovery_config)),
-          discovery_backend(discovery_config),
-          discovery_engine(discovery_context, discovery_backend)
+          discovery_options(make_discovery_options(id, tport, dport)),
+          discovery(discovery_options, transport_engine)
     {
     }
 
@@ -122,34 +102,23 @@ namespace
       return context;
     }
 
-    static discovery::core::DiscoveryConfig make_discovery_config(
+    static discovery::DiscoveryOptions make_discovery_options(
         const std::string &node_id,
         std::uint16_t transport_port,
         std::uint16_t discovery_port)
     {
-      discovery::core::DiscoveryConfig config;
-      config.bind_host = "0.0.0.0";
-      config.bind_port = discovery_port;
-      config.broadcast_host = "255.255.255.255";
-      config.broadcast_port = discovery_port;
-      config.node_id = node_id;
-      config.announce_host = "127.0.0.1";
-      config.announce_port = transport_port;
-      config.announce_interval_ms = 2000;
-      config.peer_ttl_ms = 10000;
-      config.max_datagram_size = 64 * 1024;
-      config.enable_broadcast = true;
-      return config;
-    }
-
-    static discovery::core::DiscoveryContext make_discovery_context(
-        transport::engine::TransportEngine &transport_engine,
-        discovery::core::DiscoveryConfig &config)
-    {
-      discovery::core::DiscoveryContext context;
-      context.config = &config;
-      context.transport = &transport_engine;
-      return context;
+      discovery::DiscoveryOptions options;
+      options.node_id = node_id;
+      options.bind_host = "0.0.0.0";
+      options.bind_port = discovery_port;
+      options.broadcast_host = "255.255.255.255";
+      options.broadcast_port = discovery_port;
+      options.announce_host = "127.0.0.1";
+      options.announce_port = transport_port;
+      options.announce_interval_ms = 2000;
+      options.peer_ttl_ms = 10000;
+      options.enable_broadcast = true;
+      return options;
     }
 
     bool start()
@@ -159,7 +128,7 @@ namespace
         return false;
       }
 
-      if (!discovery_engine.start())
+      if (!discovery.start())
       {
         transport_engine.stop();
         return false;
@@ -170,54 +139,62 @@ namespace
 
     void stop()
     {
-      discovery_engine.stop();
+      discovery.stop();
       transport_engine.stop();
     }
 
     void tick()
     {
-      discovery_engine.poll_many(16);
+      discovery.poll_many(16);
       transport_engine.poll_many(16);
     }
 
     bool announce()
     {
-      return discovery_engine.announce_now();
+      return discovery.announce_now();
     }
 
     bool probe()
     {
-      return discovery_engine.probe_now();
+      return discovery.probe_now();
+    }
+
+    bool has_peer(const std::string &peer_id) const
+    {
+      for (const auto &peer : discovery.peers())
+      {
+        if (peer.node_id == peer_id)
+        {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    void print_peers() const
+    {
+      const auto peers = discovery.peers();
+
+      std::cout << "[" << node_id << "] discovered peers:\n";
+
+      if (peers.empty())
+      {
+        std::cout << "  - none\n";
+        return;
+      }
+
+      for (const auto &peer : peers)
+      {
+        std::cout
+            << "  - node_id=" << peer.node_id
+            << ", host=" << peer.host
+            << ", port=" << peer.port
+            << ", last_seen_at=" << peer.last_seen_at
+            << '\n';
+      }
     }
   };
-
-  void print_node_peers(const DemoNode &node)
-  {
-    const auto peers = node.discovery_engine.peers().all();
-
-    std::cout << "[" << node.node_id << "] discovered peers:\n";
-
-    if (peers.empty())
-    {
-      std::cout << "  - none\n";
-      return;
-    }
-
-    for (const auto &peer : peers)
-    {
-      std::cout
-          << "  - node_id=" << peer.announcement.node_id
-          << ", host=" << peer.announcement.host
-          << ", port=" << peer.announcement.port
-          << ", last_seen_at=" << peer.last_seen_at
-          << '\n';
-    }
-  }
-
-  bool has_peer(const DemoNode &node, const std::string &peer_id)
-  {
-    return node.discovery_engine.peers().contains(peer_id);
-  }
 }
 
 int main()
@@ -228,6 +205,14 @@ int main()
 
     DemoNode node_a("node-a", 9301, 9400);
     DemoNode node_b("node-b", 9302, 9400);
+
+    node_a.discovery.onPeerFound([](const discovery::Peer &peer)
+                                 { std::cout << "[node-a] peer found: " << peer.node_id
+                                             << " at " << peer.host << ":" << peer.port << '\n'; });
+
+    node_b.discovery.onPeerFound([](const discovery::Peer &peer)
+                                 { std::cout << "[node-b] peer found: " << peer.node_id
+                                             << " at " << peer.host << ":" << peer.port << '\n'; });
 
     if (!node_a.start())
     {
@@ -257,7 +242,7 @@ int main()
       node_a.tick();
       node_b.tick();
 
-      if (has_peer(node_a, "node-b") && has_peer(node_b, "node-a"))
+      if (node_a.has_peer("node-b") && node_b.has_peer("node-a"))
       {
         converged = true;
         break;
@@ -266,8 +251,8 @@ int main()
       std::this_thread::sleep_for(200ms);
     }
 
-    print_node_peers(node_a);
-    print_node_peers(node_b);
+    node_a.print_peers();
+    node_b.print_peers();
 
     node_a.stop();
     node_b.stop();

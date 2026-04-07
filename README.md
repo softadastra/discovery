@@ -1,262 +1,193 @@
-# softadastra/discovery
+# Softadastra Discovery
 
-> Peer discovery layer for local-first distributed systems.
+> **Peer discovery for real-world networks.**
 
-The `discovery` module is responsible for **finding and tracking peers on the network**.
+Softadastra Discovery is a lightweight, offline-first discovery layer designed to find peers reliably across unstable networks.
 
-It enables devices to:
+It allows nodes to:
 
-> Discover each other automatically without relying on any central server.
+- discover each other over LAN or local networks
+- announce their presence
+- detect peers in real time
+- integrate directly with the transport layer
 
----
+Built for environments where connectivity is unreliable, intermittent, or local-first.
 
-## Purpose
+## Why Discovery matters
 
-The goal of `softadastra/discovery` is simple:
+In real-world systems:
 
-> Detect available peers and maintain an up-to-date registry of reachable devices.
+- networks are unstable
+- DNS is not always reliable
+- central registries are not always available
+- devices must find each other locally
 
----
+Softadastra Discovery solves this by enabling:
 
-## Core Principle
+> **Zero-configuration peer discovery over local networks.**
 
-> Find peers. Do not communicate data.
+No central server. No coordination. Just working systems.
 
-This module:
+## Key Features
 
-* Detects peers
-* Tracks their presence
-* Exposes their availability
+- 🔍 Automatic peer discovery (broadcast + probe)
+- ⚡ Real-time detection of peers
+- 🌍 Works without internet (LAN / local networks)
+- 🔁 Designed for offline-first systems
+- 🔌 Direct integration with `TransportEngine`
+- 🧠 Clean separation of concerns (backend / engine / service)
+- 🧩 Simple public API via `DiscoveryService`
 
-It does **not** exchange application data.
+## Installation
 
----
+```bash
+vix add @softadastra/discovery
+vix install
+```
 
-## Responsibilities
+## Quick Start
 
-The `discovery` module provides:
-
-* Peer detection (LAN)
-* Peer registration
-* Peer state tracking
-* Liveness monitoring
-
----
-
-## What this module does NOT do
-
-* No data transfer (transport module)
-* No sync logic (sync module)
-* No durability (wal module)
-* No filesystem access (fs module)
-
-👉 It only discovers and tracks peers.
-
----
-
-## Design Principles
-
-### 1. Decentralized
-
-No central server is required.
-
----
-
-### 2. Best-effort
-
-Discovery is not guaranteed.
-
-The system must tolerate missing or delayed peers.
-
----
-
-### 3. Lightweight
-
-Discovery should be:
-
-* Fast
-* Low bandwidth
-* Low overhead
-
----
-
-### 4. Ephemeral
-
-Peer presence is temporary:
-
-* Devices may appear/disappear
-* State must expire
-
----
-
-## Core Components
-
-### Peer
-
-Represents a discovered device.
-
-Contains:
-
-* Device ID
-* Address (IP, port)
-* Last seen timestamp
-* Status (alive, stale)
-
----
-
-### DiscoveryService
-
-Main entry point.
-
-Responsible for:
-
-* Starting discovery
-* Receiving peer announcements
-* Updating registry
-
----
-
-### LanBeacon
-
-Handles:
-
-* Broadcasting presence
-* Listening for other peers
-* Periodic announcements
-
----
-
-### PeerRegistry
-
-Maintains:
-
-* List of known peers
-* Their current state
-* Expiration logic
-
----
-
-## Example Usage
-
-```cpp id="ex9"
-#include <softadastra/discovery/DiscoveryService.hpp>
+```cpp
+#include <softadastra/discovery/discovery.hpp>
 
 using namespace softadastra::discovery;
 
-DiscoveryService discovery;
+DiscoveryOptions options;
+options.node_id        = "node-a";
+options.bind_port      = 9400;
+options.broadcast_port = 9400;
+options.announce_port  = 9301;
+
+DiscoveryService discovery(options, transport_engine);
 
 discovery.onPeerFound([](const Peer& peer) {
-    // Connect via transport
+    std::cout << "Peer found: "
+              << peer.node_id
+              << " at "
+              << peer.host
+              << ":"
+              << peer.port
+              << std::endl;
 });
 
 discovery.start();
+
+for (;;) {
+    discovery.poll_many(16);
+}
 ```
 
----
+## Concepts
 
-## Discovery Flow
+### `DiscoveryService`
 
-### Announce
+The main entry point of the module. Responsible for:
 
-1. Node broadcasts presence on LAN
-2. Includes:
+- starting discovery
+- polling network messages
+- emitting peer events
+- exposing discovered peers
 
-   * Device ID
-   * Address
-   * Basic metadata
+### `DiscoveryOptions`
 
----
+Simple configuration structure:
 
-### Listen
+```cpp
+DiscoveryOptions options;
+options.node_id        = "node-a";
+options.bind_port      = 9400;
+options.broadcast_port = 9400;
+options.announce_port  = 9301;
+```
 
-1. Node listens for incoming beacons
-2. Parses peer information
-3. Updates registry
+### `Peer`
 
----
+Represents a discovered node:
 
-### Expire
+```cpp
+Peer peer;
+peer.node_id;  // unique identifier
+peer.host;     // IP address
+peer.port;     // port number
+```
 
-1. Peer not seen for a period
-2. Marked as stale
-3. Eventually removed
+## How it works
 
----
+1. Nodes broadcast announcements over UDP
+2. Nodes send probes to discover peers
+3. Incoming messages are decoded and processed
+4. Peers are tracked in a local registry
+5. New peers trigger events (`onPeerFound`)
+6. Discovery integrates with the transport layer automatically
 
-## Integration
+## Architecture
 
-Used by:
+```
+DiscoveryService      (public API)
+        ↓
+DiscoveryEngine       (orchestration)
+        ↓
+DiscoveryClient / DiscoveryServer
+        ↓
+IDiscoveryBackend     (UDP)
+        ↓
+Platform              (Linux / future OS)
+```
 
-* transport (to initiate connections)
-* sync (indirectly via transport)
-* app layer
+## Examples
 
----
+Build the examples:
 
-## Network Model
+```bash
+vix build
+```
 
-* LAN-based discovery
-* Broadcast / multicast (MVP)
-* No internet dependency
+| Example | Command |
+|---------|---------|
+| Minimal | `./build-ninja/examples/discovery_minimal` |
+| Listener | `./build-ninja/examples/discovery_listener` |
+| Announcer | `./build-ninja/examples/discovery_announcer` |
+| Roundtrip demo (2 nodes) | `./build-ninja/examples/discovery_roundtrip_demo` |
 
----
+## Designed for the real world
 
-## Failure Model
+Softadastra Discovery is not built for ideal conditions.
 
-Handles:
+It is built for:
 
-* Peers going offline
-* Network instability
-* Delayed announcements
-* Duplicate discoveries
+- unstable networks
+- intermittent connectivity
+- local-first systems
+- peer-to-peer environments
 
----
+## Position in Softadastra
 
-## MVP Scope
+Softadastra Discovery is part of the core stack:
 
-* Local network only
-* Broadcast discovery
-* Basic peer registry
-* No authentication
+```
+Discovery → Transport → Sync → Store → WAL
+```
 
----
+It is the entry point for:
+
+- finding peers
+- connecting nodes
+- enabling synchronization
 
 ## Roadmap
 
-* Secure discovery (signed beacons)
-* Multi-network discovery (LAN + WAN)
-* Relay-assisted discovery
-* NAT traversal support
-* Peer scoring and prioritization
-
----
-
-## Rules
-
-* Never transport application data
-* Never assume peer availability
-* Always expire stale peers
-* Always tolerate duplicates
-
----
-
-## Philosophy
-
-Discovery is not truth.
-
-> It is a hint about who might be reachable.
-
----
-
-## Summary
-
-* Finds peers on the network
-* Tracks their presence
-* Enables connection setup
-* Fully decentralized
-
----
+- [ ] Multi-platform support (macOS, Windows)
+- [ ] Multicast support
+- [ ] Encrypted discovery channels
+- [ ] NAT traversal strategies
+- [ ] Pluggable backends (beyond UDP)
 
 ## License
 
-See root LICENSE file.
+MIT
+
+## Softadastra
+
+Softadastra is a foundational system for building reliable software in unreliable environments.
+
+> *Write locally. Persist first. Sync later.*

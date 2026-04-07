@@ -57,11 +57,44 @@ file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
+set(SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES)
+
+if(UNIX AND NOT APPLE)
+    file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_LINUX_SOURCES
+        CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/*.cpp"
+    )
+    list(APPEND SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES
+        ${SOFTADASTRA_DISCOVERY_LINUX_SOURCES}
+    )
+endif()
+
+if(APPLE)
+    file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_MAC_SOURCES
+        CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/platform/mac/*.cpp"
+    )
+    list(APPEND SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES
+        ${SOFTADASTRA_DISCOVERY_MAC_SOURCES}
+    )
+endif()
+
+if(WIN32)
+    file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_WINDOWS_SOURCES
+        CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/platform/windows/*.cpp"
+    )
+    list(APPEND SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES
+        ${SOFTADASTRA_DISCOVERY_WINDOWS_SOURCES}
+    )
+endif()
+
 # ========================
 # Library
 # ========================
 add_library(softadastra_discovery
     ${SOFTADASTRA_DISCOVERY_SOURCES}
+    ${SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES}
 )
 
 add_library(softadastra::discovery ALIAS softadastra_discovery)
@@ -89,6 +122,17 @@ if(MSVC)
     target_compile_options(softadastra_discovery PRIVATE /W4 /permissive-)
 else()
     target_compile_options(softadastra_discovery PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# ========================
+# Platform definitions
+# ========================
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(softadastra_discovery PRIVATE SOFTADASTRA_DISCOVERY_LINUX)
+elseif(APPLE)
+    target_compile_definitions(softadastra_discovery PRIVATE SOFTADASTRA_DISCOVERY_MAC)
+elseif(WIN32)
+    target_compile_definitions(softadastra_discovery PRIVATE SOFTADASTRA_DISCOVERY_WINDOWS)
 endif()
 
 # ========================

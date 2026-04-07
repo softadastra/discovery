@@ -5,7 +5,7 @@
   "type": "library",
   "include": "include",
   "license": "MIT",
-  "description": "Peer discovery layer for Softadastra. Handles peer announcements, peer discovery, node presence, peer registry updates, and automatic detection of available nodes on local or distributed networks. Bridges transport connectivity with higher-level autonomous peer awareness.",
+  "description": "Softadastra Discovery is a lightweight, offline-first discovery layer designed to find peers reliably across unstable networks.",
   "keywords": [
     "softadastra",
     "discovery",
