@@ -11,8 +11,8 @@ include(GNUInstallDirs)
 # ========================
 # Options
 # ========================
-option(SOFTADASTRA_DISCOVERY_BUILD_TESTS "Build discovery tests" ON)
-option(SOFTADASTRA_DISCOVERY_BUILD_EXAMPLES "Build discovery examples" ON)
+option(SOFTADASTRA_DISCOVERY_BUILD_TESTS "Build discovery tests" OFF)
+option(SOFTADASTRA_DISCOVERY_BUILD_EXAMPLES "Build discovery examples" OFF)
 
 # ========================
 # Global settings
@@ -24,8 +24,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # ========================
 # Dependencies
 # ========================
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.vix/vix_deps.cmake")
-    include("${CMAKE_CURRENT_SOURCE_DIR}/.vix/vix_deps.cmake")
+if(NOT SOFTADASTRA_UMBRELLA_BUILD)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.vix/vix_deps.cmake")
+        include("${CMAKE_CURRENT_SOURCE_DIR}/.vix/vix_deps.cmake")
+    endif()
 endif()
 
 if(NOT TARGET softadastra::transport AND NOT TARGET softadastra_transport)
@@ -148,7 +150,7 @@ set_target_properties(softadastra_discovery PROPERTIES
 # ========================
 # Examples
 # ========================
-if(SOFTADASTRA_DISCOVERY_BUILD_EXAMPLES)
+if(SOFTADASTRA_DISCOVERY_BUILD_EXAMPLES AND NOT SOFTADASTRA_UMBRELLA_BUILD)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
         add_subdirectory(examples)
     else()

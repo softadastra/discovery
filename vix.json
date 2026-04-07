@@ -1,7 +1,7 @@
 {
   "name": "discovery",
   "namespace": "softadastra",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "library",
   "include": "include",
   "license": "MIT",
@@ -41,7 +41,7 @@
   "deps": [
     {
       "id": "softadastra/transport",
-      "version": "0.5.0"
+      "version": "0.6.0"
     }
   ]
 }
