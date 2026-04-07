@@ -55,6 +55,16 @@ namespace softadastra::discovery
     return engine_.start();
   }
 
+  softadastra::discovery::engine::DiscoveryEngine &DiscoveryService::engine() noexcept
+  {
+    return engine_;
+  }
+
+  const softadastra::discovery::engine::DiscoveryEngine &DiscoveryService::engine() const noexcept
+  {
+    return engine_;
+  }
+
   void DiscoveryService::stop()
   {
     engine_.stop();

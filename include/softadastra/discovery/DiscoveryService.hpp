@@ -32,6 +32,9 @@ namespace softadastra::discovery
     DiscoveryService(const DiscoveryOptions &options,
                      transport_engine::TransportEngine &transport);
 
+    const softadastra::discovery::engine::DiscoveryEngine &engine() const noexcept;
+    softadastra::discovery::engine::DiscoveryEngine &engine() noexcept;
+
     bool start();
     void stop();
     bool running() const noexcept;
