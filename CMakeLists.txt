@@ -66,23 +66,13 @@ file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_SOURCES
 
 set(SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES)
 
-if(UNIX AND NOT APPLE)
-    file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_LINUX_SOURCES
+if(UNIX)
+    file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_POSIX_SOURCES
         CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/*.cpp"
     )
     list(APPEND SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES
-        ${SOFTADASTRA_DISCOVERY_LINUX_SOURCES}
-    )
-endif()
-
-if(APPLE)
-    file(GLOB_RECURSE SOFTADASTRA_DISCOVERY_MAC_SOURCES
-        CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/platform/mac/*.cpp"
-    )
-    list(APPEND SOFTADASTRA_DISCOVERY_PLATFORM_SOURCES
-        ${SOFTADASTRA_DISCOVERY_MAC_SOURCES}
+        ${SOFTADASTRA_DISCOVERY_POSIX_SOURCES}
     )
 endif()
 
@@ -140,6 +130,10 @@ endif()
 # ========================
 # Platform definitions
 # ========================
+if(UNIX)
+    target_compile_definitions(softadastra_discovery PRIVATE SOFTADASTRA_DISCOVERY_POSIX)
+endif()
+
 if(UNIX AND NOT APPLE)
     target_compile_definitions(softadastra_discovery PRIVATE SOFTADASTRA_DISCOVERY_LINUX)
 elseif(APPLE)
