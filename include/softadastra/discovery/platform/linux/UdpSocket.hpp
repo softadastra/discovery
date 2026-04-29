@@ -1,5 +1,16 @@
-/*
- * UdpSocket.hpp
+/**
+ *
+ *  @file UdpSocket.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2026, Softadastra.
+ *  All rights reserved.
+ *  https://github.com/softadastra/softadastra
+ *
+ *  Licensed under the Apache License, Version 2.0.
+ *
+ *  Softadastra Discovery
+ *
  */
 
 #ifndef SOFTADASTRA_DISCOVERY_UDP_SOCKET_HPP
@@ -8,19 +19,22 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
 
+#include <softadastra/core/Core.hpp>
 #include <softadastra/discovery/utils/Datagram.hpp>
 
 namespace softadastra::discovery::platform::os_linux
 {
   namespace utils = softadastra::discovery::utils;
+  namespace core_time = softadastra::core::time;
 
   /**
-   * @brief Minimal Linux UDP socket wrapper
+   * @brief Minimal Linux UDP socket wrapper.
    *
-   * This class provides a small RAII wrapper around an IPv4 UDP socket
-   * for the discovery module.
+   * UdpSocket is a small RAII wrapper around an IPv4 UDP socket.
+   *
+   * It is used by the discovery module to implement UDP-based local peer
+   * discovery.
    *
    * Current scope:
    * - open / close
@@ -29,104 +43,197 @@ namespace softadastra::discovery::platform::os_linux
    * - receive datagram
    * - broadcast support
    * - basic socket options
+   *
+   * The socket owns its file descriptor and closes it in the destructor.
    */
   class UdpSocket
   {
   public:
     /**
-     * @brief Create an invalid socket
+     * @brief Creates an invalid socket.
      */
     UdpSocket() noexcept;
 
     /**
-     * @brief Adopt an existing socket file descriptor
+     * @brief Adopts an existing socket file descriptor.
+     *
+     * @param fd Existing socket file descriptor.
      */
     explicit UdpSocket(int fd) noexcept;
 
     /**
-     * @brief Destructor closes the socket if still open
+     * @brief Closes the socket if it is still open.
      */
     ~UdpSocket();
 
     UdpSocket(const UdpSocket &) = delete;
     UdpSocket &operator=(const UdpSocket &) = delete;
 
+    /**
+     * @brief Move-constructs a socket.
+     *
+     * Ownership of the file descriptor is transferred.
+     *
+     * @param other Source socket.
+     */
     UdpSocket(UdpSocket &&other) noexcept;
+
+    /**
+     * @brief Move-assigns a socket.
+     *
+     * Any currently owned descriptor is closed before taking ownership.
+     *
+     * @param other Source socket.
+     * @return This socket.
+     */
     UdpSocket &operator=(UdpSocket &&other) noexcept;
 
     /**
-     * @brief Open a new IPv4 UDP socket
-     */
-    bool open();
-
-    /**
-     * @brief Bind the socket to host:port
-     */
-    bool bind(const std::string &host, std::uint16_t port);
-
-    /**
-     * @brief Send one datagram to host:port
+     * @brief Opens a new IPv4 UDP socket.
      *
-     * Returns the number of bytes successfully sent.
+     * @return true on success.
      */
-    std::size_t send_to(const std::string &host,
-                        std::uint16_t port,
-                        const void *data,
-                        std::size_t size);
+    [[nodiscard]] bool open();
 
     /**
-     * @brief Send one discovery datagram
+     * @brief Binds the socket to host and port.
      *
-     * Returns the number of bytes successfully sent.
+     * @param host Local bind host.
+     * @param port Local bind port.
+     * @return true on success.
      */
-    std::size_t send_datagram(const utils::Datagram &datagram);
+    [[nodiscard]] bool bind(
+        const std::string &host,
+        std::uint16_t port);
 
     /**
-     * @brief Receive one datagram
+     * @brief Sends bytes to host and port.
      *
-     * Returns an invalid datagram on failure.
+     * @param host Destination host.
+     * @param port Destination port.
+     * @param data Source buffer.
+     * @param size Number of bytes to send.
+     * @return Number of bytes successfully sent.
      */
-    utils::Datagram recv_datagram(std::size_t max_size);
+    [[nodiscard]] std::size_t send_to(
+        const std::string &host,
+        std::uint16_t port,
+        const void *data,
+        std::size_t size);
 
     /**
-     * @brief Close the socket
+     * @brief Sends one discovery datagram.
+     *
+     * @param datagram Datagram to send.
+     * @return Number of bytes successfully sent.
+     */
+    [[nodiscard]] std::size_t send_datagram(
+        const utils::Datagram &datagram);
+
+    /**
+     * @brief Receives one datagram.
+     *
+     * Returns an invalid Datagram on failure.
+     *
+     * @param max_size Maximum number of payload bytes to receive.
+     * @return Received datagram.
+     */
+    [[nodiscard]] utils::Datagram recv_datagram(
+        std::size_t max_size);
+
+    /**
+     * @brief Closes the socket.
      */
     void close() noexcept;
 
     /**
-     * @brief Enable or disable SO_REUSEADDR
+     * @brief Enables or disables SO_REUSEADDR.
+     *
+     * @param enabled Whether the option should be enabled.
+     * @return true on success.
      */
-    bool set_reuse_addr(bool enabled);
+    [[nodiscard]] bool set_reuse_addr(bool enabled);
 
     /**
-     * @brief Enable or disable SO_BROADCAST
+     * @brief Enables or disables SO_BROADCAST.
+     *
+     * @param enabled Whether the option should be enabled.
+     * @return true on success.
      */
-    bool set_broadcast(bool enabled);
+    [[nodiscard]] bool set_broadcast(bool enabled);
 
     /**
-     * @brief Set receive timeout in milliseconds
+     * @brief Sets receive timeout.
+     *
+     * @param timeout Timeout duration.
+     * @return true on success.
      */
-    bool set_recv_timeout_ms(std::uint64_t timeout_ms);
+    [[nodiscard]] bool set_recv_timeout(
+        core_time::Duration timeout);
 
     /**
-     * @brief Set send timeout in milliseconds
+     * @brief Sets send timeout.
+     *
+     * @param timeout Timeout duration.
+     * @return true on success.
      */
-    bool set_send_timeout_ms(std::uint64_t timeout_ms);
+    [[nodiscard]] bool set_send_timeout(
+        core_time::Duration timeout);
 
     /**
-     * @brief Return whether the socket is valid
+     * @brief Sets receive timeout in milliseconds.
+     *
+     * @param timeout_ms Timeout in milliseconds.
+     * @return true on success.
      */
-    bool valid() const noexcept;
+    [[nodiscard]] bool set_recv_timeout_ms(std::uint64_t timeout_ms)
+    {
+      return set_recv_timeout(
+          core_time::Duration::from_millis(
+              static_cast<core_time::Duration::rep>(timeout_ms)));
+    }
 
     /**
-     * @brief Return the raw file descriptor
+     * @brief Sets send timeout in milliseconds.
+     *
+     * @param timeout_ms Timeout in milliseconds.
+     * @return true on success.
      */
-    int fd() const noexcept;
+    [[nodiscard]] bool set_send_timeout_ms(std::uint64_t timeout_ms)
+    {
+      return set_send_timeout(
+          core_time::Duration::from_millis(
+              static_cast<core_time::Duration::rep>(timeout_ms)));
+    }
+
+    /**
+     * @brief Returns whether the socket owns a valid file descriptor.
+     *
+     * @return true when valid.
+     */
+    [[nodiscard]] bool is_valid() const noexcept;
+
+    /**
+     * @brief Backward-compatible valid alias.
+     *
+     * @return true when valid.
+     */
+    [[nodiscard]] bool valid() const noexcept
+    {
+      return is_valid();
+    }
+
+    /**
+     * @brief Returns the raw file descriptor.
+     *
+     * @return File descriptor, or -1 if invalid.
+     */
+    [[nodiscard]] int fd() const noexcept;
 
   private:
-    int fd_;
+    int fd_{-1};
   };
 
-} // namespace softadastra::discovery::platform::linux
+} // namespace softadastra::discovery::platform::os_linux
 
-#endif
+#endif // SOFTADASTRA_DISCOVERY_UDP_SOCKET_HPP

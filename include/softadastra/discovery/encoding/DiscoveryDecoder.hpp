@@ -1,17 +1,31 @@
-/*
- * DiscoveryDecoder.hpp
+/**
+ *
+ *  @file DiscoveryDecoder.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2026, Softadastra.
+ *  All rights reserved.
+ *  https://github.com/softadastra/softadastra
+ *
+ *  Licensed under the Apache License, Version 2.0.
+ *
+ *  Softadastra Discovery
+ *
  */
 
 #ifndef SOFTADASTRA_DISCOVERY_DECODER_HPP
 #define SOFTADASTRA_DISCOVERY_DECODER_HPP
 
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
+#include <softadastra/store/utils/Serializer.hpp>
 #include <softadastra/discovery/core/DiscoveryMessage.hpp>
+#include <softadastra/discovery/types/DiscoveryMessageType.hpp>
 #include <softadastra/discovery/utils/Datagram.hpp>
 
 namespace softadastra::discovery::encoding
@@ -19,59 +33,87 @@ namespace softadastra::discovery::encoding
   namespace core = softadastra::discovery::core;
   namespace types = softadastra::discovery::types;
   namespace utils = softadastra::discovery::utils;
+  namespace store_utils = softadastra::store::utils;
 
+  /**
+   * @brief Decodes binary discovery payloads into messages.
+   *
+   * DiscoveryDecoder is the inverse of DiscoveryEncoder.
+   *
+   * Message payload format:
+   *
+   * @code
+   * uint8  message_type
+   * uint32 from_size
+   * bytes  from_node_id
+   * uint32 to_size
+   * bytes  to_node_id
+   * uint32 correlation_size
+   * bytes  correlation_id
+   * uint32 payload_size
+   * bytes  payload
+   * @endcode
+   *
+   * Integers are decoded using the shared Store serializer helpers to keep
+   * binary formats deterministic across modules.
+   */
   class DiscoveryDecoder
   {
   public:
     /**
-     * @brief Decode a discovery message payload
+     * @brief Decodes a discovery message payload.
+     *
+     * @param data Encoded message bytes.
+     * @return DiscoveryMessage or std::nullopt on invalid input.
      */
-    static std::optional<core::DiscoveryMessage> decode_message(const std::uint8_t *data,
-                                                                std::size_t size)
+    [[nodiscard]] static std::optional<core::DiscoveryMessage>
+    decode_message(std::span<const std::uint8_t> data)
     {
-      if (data == nullptr || size < minimum_message_size())
+      if (data.size() < minimum_message_size())
       {
         return std::nullopt;
       }
 
       std::size_t offset = 0;
 
-      core::DiscoveryMessage message;
+      core::DiscoveryMessage message{};
 
       std::uint8_t raw_type = 0;
-      if (!read(data, size, offset, raw_type))
+
+      if (!read_u8(data, offset, raw_type))
       {
         return std::nullopt;
       }
 
-      message.type = static_cast<types::DiscoveryMessageType>(raw_type);
+      message.type =
+          static_cast<types::DiscoveryMessageType>(raw_type);
 
-      if (!read_string(data, size, offset, message.from_node_id))
+      if (!read_string(data, offset, message.from_node_id))
       {
         return std::nullopt;
       }
 
-      if (!read_string(data, size, offset, message.to_node_id))
+      if (!read_string(data, offset, message.to_node_id))
       {
         return std::nullopt;
       }
 
-      if (!read_string(data, size, offset, message.correlation_id))
+      if (!read_string(data, offset, message.correlation_id))
       {
         return std::nullopt;
       }
 
-      if (!read_bytes(data, size, offset, message.payload))
+      if (!read_bytes(data, offset, message.payload))
       {
         return std::nullopt;
       }
 
-      if (offset != size)
+      if (offset != data.size())
       {
         return std::nullopt;
       }
 
-      if (!message.valid())
+      if (!message.is_valid())
       {
         return std::nullopt;
       }
@@ -80,26 +122,52 @@ namespace softadastra::discovery::encoding
     }
 
     /**
-     * @brief Decode a discovery message from a raw byte vector
+     * @brief Decodes a discovery message payload from raw pointer and size.
+     *
+     * @param data Encoded message bytes.
+     * @param size Byte count.
+     * @return DiscoveryMessage or std::nullopt on invalid input.
      */
-    static std::optional<core::DiscoveryMessage> decode_message(
-        const std::vector<std::uint8_t> &buffer)
+    [[nodiscard]] static std::optional<core::DiscoveryMessage>
+    decode_message(const std::uint8_t *data, std::size_t size)
+    {
+      if (data == nullptr)
+      {
+        return std::nullopt;
+      }
+
+      return decode_message(
+          std::span<const std::uint8_t>(data, size));
+    }
+
+    /**
+     * @brief Decodes a discovery message from a raw byte vector.
+     *
+     * @param buffer Encoded message bytes.
+     * @return DiscoveryMessage or std::nullopt on invalid input.
+     */
+    [[nodiscard]] static std::optional<core::DiscoveryMessage>
+    decode_message(const std::vector<std::uint8_t> &buffer)
     {
       if (buffer.empty())
       {
         return std::nullopt;
       }
 
-      return decode_message(buffer.data(), buffer.size());
+      return decode_message(
+          std::span<const std::uint8_t>(buffer.data(), buffer.size()));
     }
 
     /**
-     * @brief Decode a discovery message directly from a Datagram
+     * @brief Decodes a discovery message directly from a Datagram.
+     *
+     * @param datagram Datagram containing encoded discovery payload.
+     * @return DiscoveryMessage or std::nullopt on invalid input.
      */
-    static std::optional<core::DiscoveryMessage> decode_datagram(
-        const utils::Datagram &datagram)
+    [[nodiscard]] static std::optional<core::DiscoveryMessage>
+    decode_datagram(const utils::Datagram &datagram)
     {
-      if (!datagram.valid())
+      if (!datagram.is_valid())
       {
         return std::nullopt;
       }
@@ -108,7 +176,10 @@ namespace softadastra::discovery::encoding
     }
 
   private:
-    static constexpr std::size_t minimum_message_size()
+    /**
+     * @brief Minimum possible discovery message size.
+     */
+    [[nodiscard]] static constexpr std::size_t minimum_message_size() noexcept
     {
       return sizeof(std::uint8_t) +
              sizeof(std::uint32_t) +
@@ -117,65 +188,94 @@ namespace softadastra::discovery::encoding
              sizeof(std::uint32_t);
     }
 
-    template <typename T>
-    static bool read(const std::uint8_t *data,
-                     std::size_t size,
-                     std::size_t &offset,
-                     T &value)
+    /**
+     * @brief Reads one uint8 value.
+     */
+    [[nodiscard]] static bool read_u8(
+        std::span<const std::uint8_t> data,
+        std::size_t &offset,
+        std::uint8_t &value) noexcept
     {
-      if (offset + sizeof(T) > size)
+      if (!store_utils::Serializer::can_read(
+              data,
+              offset,
+              sizeof(std::uint8_t)))
       {
         return false;
       }
 
-      std::memcpy(&value, data + offset, sizeof(T));
-      offset += sizeof(T);
+      value = data[offset];
+      ++offset;
       return true;
     }
 
-    static bool read_string(const std::uint8_t *data,
-                            std::size_t size,
-                            std::size_t &offset,
-                            std::string &out)
+    /**
+     * @brief Reads a size-prefixed string.
+     */
+    [[nodiscard]] static bool read_string(
+        std::span<const std::uint8_t> data,
+        std::size_t &offset,
+        std::string &out)
     {
       std::uint32_t length = 0;
-      if (!read(data, size, offset, length))
+
+      if (!store_utils::Serializer::read_u32(
+              data,
+              offset,
+              length))
       {
         return false;
       }
 
-      if (offset + length > size)
+      if (!store_utils::Serializer::can_read(
+              data,
+              offset,
+              length))
       {
         return false;
       }
 
-      out.assign(reinterpret_cast<const char *>(data + offset), length);
+      out.assign(
+          reinterpret_cast<const char *>(data.data() + offset),
+          length);
+
       offset += length;
       return true;
     }
 
-    static bool read_bytes(const std::uint8_t *data,
-                           std::size_t size,
-                           std::size_t &offset,
-                           std::vector<std::uint8_t> &out)
+    /**
+     * @brief Reads size-prefixed bytes.
+     */
+    [[nodiscard]] static bool read_bytes(
+        std::span<const std::uint8_t> data,
+        std::size_t &offset,
+        std::vector<std::uint8_t> &out)
     {
       std::uint32_t length = 0;
-      if (!read(data, size, offset, length))
+
+      if (!store_utils::Serializer::read_u32(
+              data,
+              offset,
+              length))
       {
         return false;
       }
 
-      if (offset + length > size)
+      if (!store_utils::Serializer::can_read(
+              data,
+              offset,
+              length))
       {
         return false;
       }
 
-      out.resize(length);
+      out.clear();
+      out.reserve(length);
 
-      if (length > 0)
-      {
-        std::memcpy(out.data(), data + offset, length);
-      }
+      out.insert(
+          out.end(),
+          data.begin() + static_cast<std::ptrdiff_t>(offset),
+          data.begin() + static_cast<std::ptrdiff_t>(offset + length));
 
       offset += length;
       return true;
@@ -184,4 +284,4 @@ namespace softadastra::discovery::encoding
 
 } // namespace softadastra::discovery::encoding
 
-#endif
+#endif // SOFTADASTRA_DISCOVERY_DECODER_HPP

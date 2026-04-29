@@ -1,10 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
 set(SOFTADASTRA_DISCOVERY_EXAMPLES
+    discovery_minimal
     discovery_announcer
     discovery_listener
     discovery_roundtrip_demo
-    discovery_minimal
+    discovery_codec
+    discovery_registry
+    discovery_service
+    discovery_engine_setup
 )
 
 foreach(example_name IN LISTS SOFTADASTRA_DISCOVERY_EXAMPLES)

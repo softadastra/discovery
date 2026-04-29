@@ -1,5 +1,16 @@
-/*
- * IDiscoveryBackend.hpp
+/**
+ *
+ *  @file IDiscoveryBackend.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2026, Softadastra.
+ *  All rights reserved.
+ *  https://github.com/softadastra/softadastra
+ *
+ *  Licensed under the Apache License, Version 2.0.
+ *
+ *  Softadastra Discovery
+ *
  */
 
 #ifndef SOFTADASTRA_DISCOVERY_I_DISCOVERY_BACKEND_HPP
@@ -7,51 +18,98 @@
 
 #include <optional>
 
+#include <softadastra/core/Core.hpp>
 #include <softadastra/discovery/core/DiscoveryEnvelope.hpp>
 
 namespace softadastra::discovery::backend
 {
   namespace core = softadastra::discovery::core;
+  namespace core_types = softadastra::core::types;
 
   /**
-   * @brief Abstract discovery backend interface
+   * @brief Abstract discovery backend interface.
    *
-   * A backend is responsible only for low-level discovery message delivery.
-   * It does not contain peer registry or transport integration logic.
+   * IDiscoveryBackend defines the low-level discovery delivery contract.
+   *
+   * A backend is responsible only for discovery message delivery:
+   * - start / stop
+   * - send discovery envelope
+   * - poll received discovery envelope
+   *
+   * It must not contain peer registry logic.
+   * It must not contain transport integration logic.
    */
-  class IDiscoveryBackend
+  class IDiscoveryBackend : public core_types::NonCopyable
   {
   public:
+    /**
+     * @brief Default virtual destructor.
+     */
     virtual ~IDiscoveryBackend() = default;
 
     /**
-     * @brief Start the backend
+     * @brief Move constructor.
+     */
+    IDiscoveryBackend(IDiscoveryBackend &&) noexcept = default;
+
+    /**
+     * @brief Move assignment.
+     */
+    IDiscoveryBackend &operator=(IDiscoveryBackend &&) noexcept = default;
+
+    /**
+     * @brief Starts the discovery backend.
+     *
+     * @return true on success.
      */
     virtual bool start() = 0;
 
     /**
-     * @brief Stop the backend
+     * @brief Stops the discovery backend.
      */
     virtual void stop() = 0;
 
     /**
-     * @brief Return whether the backend is running
+     * @brief Returns whether the backend is running.
+     *
+     * @return true when running.
      */
-    virtual bool running() const noexcept = 0;
+    [[nodiscard]] virtual bool is_running() const noexcept = 0;
 
     /**
-     * @brief Send one discovery envelope
+     * @brief Backward-compatible running alias.
+     *
+     * @return true when running.
+     */
+    [[nodiscard]] bool running() const noexcept
+    {
+      return is_running();
+    }
+
+    /**
+     * @brief Sends one discovery envelope.
+     *
+     * @param envelope Discovery envelope.
+     * @return true on success.
      */
     virtual bool send(const core::DiscoveryEnvelope &envelope) = 0;
 
     /**
-     * @brief Poll one received discovery envelope if available
+     * @brief Polls one received discovery envelope if available.
      *
      * Returns std::nullopt when no message is available.
+     *
+     * @return Discovery envelope or std::nullopt.
      */
-    virtual std::optional<core::DiscoveryEnvelope> poll() = 0;
+    [[nodiscard]] virtual std::optional<core::DiscoveryEnvelope> poll() = 0;
+
+  protected:
+    /**
+     * @brief Protected default constructor.
+     */
+    IDiscoveryBackend() = default;
   };
 
 } // namespace softadastra::discovery::backend
 
-#endif
+#endif // SOFTADASTRA_DISCOVERY_I_DISCOVERY_BACKEND_HPP

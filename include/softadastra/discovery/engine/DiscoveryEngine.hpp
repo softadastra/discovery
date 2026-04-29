@@ -1,17 +1,31 @@
-/*
- * DiscoveryEngine.hpp
+/**
+ *
+ *  @file DiscoveryEngine.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2026, Softadastra.
+ *  All rights reserved.
+ *  https://github.com/softadastra/softadastra
+ *
+ *  Licensed under the Apache License, Version 2.0.
+ *
+ *  Softadastra Discovery
+ *
  */
 
 #ifndef SOFTADASTRA_DISCOVERY_ENGINE_HPP
 #define SOFTADASTRA_DISCOVERY_ENGINE_HPP
 
+#include <cstddef>
 #include <cstdint>
-#include <ctime>
 #include <optional>
-#include <stdexcept>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include <softadastra/core/Core.hpp>
+#include <softadastra/store/utils/Serializer.hpp>
 #include <softadastra/discovery/backend/IDiscoveryBackend.hpp>
 #include <softadastra/discovery/client/DiscoveryClient.hpp>
 #include <softadastra/discovery/core/DiscoveryAnnouncement.hpp>
@@ -19,8 +33,6 @@
 #include <softadastra/discovery/core/DiscoveryContext.hpp>
 #include <softadastra/discovery/core/DiscoveryEnvelope.hpp>
 #include <softadastra/discovery/core/DiscoveryMessage.hpp>
-#include <softadastra/discovery/encoding/DiscoveryDecoder.hpp>
-#include <softadastra/discovery/encoding/DiscoveryEncoder.hpp>
 #include <softadastra/discovery/peer/DiscoveredPeer.hpp>
 #include <softadastra/discovery/peer/DiscoveryRegistry.hpp>
 #include <softadastra/discovery/server/DiscoveryServer.hpp>
@@ -37,42 +49,83 @@ namespace softadastra::discovery::engine
   namespace discovery_peer = softadastra::discovery::peer;
   namespace discovery_server = softadastra::discovery::server;
   namespace discovery_types = softadastra::discovery::types;
+
   namespace transport_core = softadastra::transport::core;
 
+  namespace core_time = softadastra::core::time;
+  namespace store_utils = softadastra::store::utils;
+
   /**
-   * @brief Orchestrates discovery send/receive operations
+   * @brief Orchestrates discovery send and receive operations.
    *
-   * Responsibilities:
-   * - own the discovery backend wrappers
-   * - manage discovered peer registry state
-   * - broadcast local announcements
-   * - poll inbound discovery messages
-   * - register discovered peers into the transport layer
+   * DiscoveryEngine is the high-level discovery facade.
+   *
+   * It coordinates:
+   * - backend lifecycle
+   * - outbound announcements
+   * - outbound probes
+   * - inbound discovery polling
+   * - discovered peer registry updates
+   * - transport peer integration
+   *
+   * It does not own transport delivery logic.
+   * It only discovers peers and hands usable peer information to TransportEngine.
    */
-  class DiscoveryEngine
+  class DiscoveryEngine : public softadastra::core::types::NonCopyable
   {
   public:
-    explicit DiscoveryEngine(const discovery_core::DiscoveryContext &context,
-                             discovery_backend::IDiscoveryBackend &backend)
+    /**
+     * @brief Creates a discovery engine.
+     *
+     * The context and backend are not owned by this engine.
+     *
+     * @param context Discovery context.
+     * @param backend Discovery backend.
+     */
+    DiscoveryEngine(
+        const discovery_core::DiscoveryContext &context,
+        discovery_backend::IDiscoveryBackend &backend) noexcept
         : context_(context),
           backend_(backend),
           client_(backend),
           server_(backend)
     {
-      if (!context_.valid())
-      {
-        throw std::runtime_error("DiscoveryEngine: invalid DiscoveryContext");
-      }
     }
 
     /**
-     * @brief Start the discovery engine
+     * @brief Stops the discovery engine on destruction.
+     */
+    ~DiscoveryEngine()
+    {
+      stop();
+    }
+
+    /**
+     * @brief Move constructor.
+     */
+    DiscoveryEngine(DiscoveryEngine &&) noexcept = default;
+
+    /**
+     * @brief Move assignment.
+     */
+    DiscoveryEngine &operator=(DiscoveryEngine &&) noexcept = default;
+
+    /**
+     * @brief Starts the discovery engine.
+     *
+     * @return true on success.
      */
     bool start()
     {
-      if (status_ == discovery_types::DiscoveryStatus::Running)
+      if (discovery_types::is_running(status_))
       {
         return true;
+      }
+
+      if (!context_.is_valid())
+      {
+        status_ = discovery_types::DiscoveryStatus::Failed;
+        return false;
       }
 
       status_ = discovery_types::DiscoveryStatus::Starting;
@@ -83,114 +136,153 @@ namespace softadastra::discovery::engine
         return false;
       }
 
-      last_announce_at_ = 0;
+      last_announce_at_ = core_time::Timestamp{};
       status_ = discovery_types::DiscoveryStatus::Running;
+
       return true;
     }
 
     /**
-     * @brief Stop the discovery engine
+     * @brief Stops the discovery engine.
      */
     void stop()
     {
+      if (status_ == discovery_types::DiscoveryStatus::Stopped)
+      {
+        return;
+      }
+
       status_ = discovery_types::DiscoveryStatus::Stopping;
+
       server_.stop();
       registry_.clear();
+
+      last_announce_at_ = core_time::Timestamp{};
       status_ = discovery_types::DiscoveryStatus::Stopped;
     }
 
     /**
-     * @brief Return current engine status
+     * @brief Returns current engine status.
+     *
+     * @return Discovery status.
      */
-    discovery_types::DiscoveryStatus status() const noexcept
+    [[nodiscard]] discovery_types::DiscoveryStatus status() const noexcept
     {
       return status_;
     }
 
     /**
-     * @brief Return true if the engine is running
+     * @brief Returns true if the discovery engine is running.
+     *
+     * @return true when status and backend are running.
      */
-    bool running() const noexcept
+    [[nodiscard]] bool is_running() const noexcept
     {
-      return status_ == discovery_types::DiscoveryStatus::Running &&
-             backend_.running();
+      return discovery_types::is_running(status_) &&
+             backend_.is_running();
     }
 
     /**
-     * @brief Broadcast one local announce immediately
+     * @brief Backward-compatible running alias.
+     *
+     * @return true when running.
+     */
+    [[nodiscard]] bool running() const noexcept
+    {
+      return is_running();
+    }
+
+    /**
+     * @brief Broadcasts one local announcement immediately.
+     *
+     * @return true if the announcement was sent.
      */
     bool announce_now()
     {
-      if (!running())
+      if (!is_running())
       {
         return false;
       }
 
-      const auto &config = context_.config_ref();
+      auto config_result = context_.config_checked();
 
-      discovery_core::DiscoveryEnvelope envelope;
-      envelope.message = make_announce_message();
-      envelope.to_host = config.broadcast_host;
-      envelope.to_port = config.broadcast_port;
-      envelope.timestamp = now_ms();
-      envelope.retry_count = 0;
-      envelope.last_attempt_at = 0;
+      if (config_result.is_err())
+      {
+        return false;
+      }
 
-      const bool sent = client_.send(envelope);
+      const auto &config = *config_result.value();
+
+      auto envelope =
+          make_outbound_envelope(
+              make_announce_message(),
+              config.broadcast_host,
+              config.broadcast_port);
+
+      const bool sent =
+          client_.send(std::move(envelope));
+
       if (sent)
       {
-        last_announce_at_ = envelope.timestamp;
+        last_announce_at_ = core_time::Timestamp::now();
       }
 
       return sent;
     }
 
     /**
-     * @brief Send one probe immediately
+     * @brief Sends one discovery probe immediately.
+     *
+     * @return true if the probe was sent.
      */
     bool probe_now()
     {
-      if (!running())
+      if (!is_running())
       {
         return false;
       }
 
-      const auto &config = context_.config_ref();
+      auto config_result = context_.config_checked();
 
-      discovery_core::DiscoveryEnvelope envelope;
-      envelope.message = make_probe_message();
-      envelope.to_host = config.broadcast_host;
-      envelope.to_port = config.broadcast_port;
-      envelope.timestamp = now_ms();
-      envelope.retry_count = 0;
-      envelope.last_attempt_at = 0;
+      if (config_result.is_err())
+      {
+        return false;
+      }
 
-      return client_.send(envelope);
+      const auto &config = *config_result.value();
+
+      auto envelope =
+          make_outbound_envelope(
+              make_probe_message(),
+              config.broadcast_host,
+              config.broadcast_port);
+
+      return client_.send(std::move(envelope));
     }
 
     /**
-     * @brief Poll and process one inbound discovery message
+     * @brief Polls and processes one inbound discovery message.
      *
-     * Returns true if one inbound envelope was processed,
-     * false if no message was available or processing failed.
+     * @return true if one inbound envelope was processed.
      */
     bool poll_once()
     {
-      if (!running())
+      if (!is_running())
       {
         return false;
       }
 
       maybe_announce();
-      expire_peers();
+      refresh_peer_states();
 
       const auto inbound = server_.poll();
+
       if (!inbound.has_value())
       {
         return false;
       }
 
-      if (!inbound->message.valid())
+      if (!inbound->message.is_valid())
       {
         return false;
       }
@@ -217,9 +309,10 @@ namespace softadastra::discovery::engine
     }
 
     /**
-     * @brief Poll up to max_messages inbound messages
+     * @brief Polls up to max_messages inbound messages.
      *
-     * Returns the number of successfully processed messages.
+     * @param max_messages Maximum number of messages to process.
+     * @return Number of successfully processed messages.
      */
     std::size_t poll_many(std::size_t max_messages)
     {
@@ -239,25 +332,46 @@ namespace softadastra::discovery::engine
     }
 
     /**
-     * @brief Read-only access to discovered peer registry
+     * @brief Returns read-only access to discovered peer registry.
+     *
+     * @return Discovery registry.
      */
-    const discovery_peer::DiscoveryRegistry &peers() const noexcept
+    [[nodiscard]] const discovery_peer::DiscoveryRegistry &
+    peers() const noexcept
     {
       return registry_;
     }
 
     /**
-     * @brief Return all alive discovered peers as transport peer infos
+     * @brief Returns all available discovered peers as transport peer info.
+     *
+     * Expired peers are skipped.
+     *
+     * @return Transport peers.
      */
-    std::vector<transport_core::PeerInfo> alive_transport_peers() const
+    [[nodiscard]] std::vector<transport_core::PeerInfo>
+    available_transport_peers() const
+    {
+      return registry_.transport_peers();
+    }
+
+    /**
+     * @brief Returns all alive discovered peers as transport peer info.
+     *
+     * @return Transport peers.
+     */
+    [[nodiscard]] std::vector<transport_core::PeerInfo>
+    alive_transport_peers() const
     {
       std::vector<transport_core::PeerInfo> result;
 
       for (const auto &peer : registry_.alive_peers())
       {
-        if (peer.valid())
+        auto info = peer.to_peer_info();
+
+        if (info.is_valid())
         {
-          result.push_back(peer.to_peer_info());
+          result.push_back(std::move(info));
         }
       }
 
@@ -265,18 +379,28 @@ namespace softadastra::discovery::engine
     }
 
     /**
-     * @brief Read-only access to context
+     * @brief Returns read-only access to context.
+     *
+     * @return Discovery context.
      */
-    const discovery_core::DiscoveryContext &context() const noexcept
+    [[nodiscard]] const discovery_core::DiscoveryContext &
+    context() const noexcept
     {
       return context_;
     }
 
   private:
-    bool handle_announce(const discovery_core::DiscoveryEnvelope &envelope)
+    /**
+     * @brief Handles one inbound announcement.
+     */
+    bool handle_announce(
+        const discovery_core::DiscoveryEnvelope &envelope)
     {
-      const auto announcement = decode_announcement(envelope.message.payload);
-      if (!announcement.has_value() || !announcement->valid())
+      const auto announcement =
+          decode_announcement(envelope.message.payload);
+
+      if (!announcement.has_value() ||
+          !announcement->is_valid())
       {
         return false;
       }
@@ -288,32 +412,46 @@ namespace softadastra::discovery::engine
 
       upsert_discovered_peer(*announcement);
       integrate_with_transport(*announcement);
+
       return true;
     }
 
-    bool handle_probe(const discovery_core::DiscoveryEnvelope &envelope)
+    /**
+     * @brief Handles one inbound probe.
+     */
+    bool handle_probe(
+        const discovery_core::DiscoveryEnvelope &envelope)
     {
-      if (envelope.from_host.empty() || envelope.from_port == 0)
+      if (!envelope.has_source())
       {
         return false;
       }
 
-      discovery_core::DiscoveryEnvelope reply;
-      reply.message = make_reply_message(envelope.message.from_node_id,
-                                         envelope.message.correlation_id);
-      reply.to_host = envelope.from_host;
-      reply.to_port = envelope.from_port;
-      reply.timestamp = now_ms();
-      reply.retry_count = 0;
-      reply.last_attempt_at = 0;
+      auto reply =
+          make_reply_message(
+              envelope.message.from_node_id,
+              envelope.message.correlation_id);
 
-      return client_.send(reply);
+      auto outbound =
+          make_outbound_envelope(
+              std::move(reply),
+              envelope.from_host,
+              envelope.from_port);
+
+      return client_.send(std::move(outbound));
     }
 
-    bool handle_reply(const discovery_core::DiscoveryEnvelope &envelope)
+    /**
+     * @brief Handles one inbound reply.
+     */
+    bool handle_reply(
+        const discovery_core::DiscoveryEnvelope &envelope)
     {
-      const auto announcement = decode_announcement(envelope.message.payload);
-      if (!announcement.has_value() || !announcement->valid())
+      const auto announcement =
+          decode_announcement(envelope.message.payload);
+
+      if (!announcement.has_value() ||
+          !announcement->is_valid())
       {
         return false;
       }
@@ -325,157 +463,250 @@ namespace softadastra::discovery::engine
 
       upsert_discovered_peer(*announcement);
       integrate_with_transport(*announcement);
+
       return true;
     }
 
-    void upsert_discovered_peer(const discovery_core::DiscoveryAnnouncement &announcement)
+    /**
+     * @brief Inserts or refreshes a discovered peer.
+     */
+    void upsert_discovered_peer(
+        discovery_core::DiscoveryAnnouncement announcement)
     {
-      discovery_peer::DiscoveredPeer peer;
-      peer.announcement = announcement;
-      peer.state = discovery_types::DiscoveryPeerState::Alive;
-      peer.last_seen_at = now_ms();
-      peer.error_count = 0;
-
-      registry_.upsert(std::move(peer));
+      registry_.upsert_announcement(std::move(announcement));
     }
 
-    void integrate_with_transport(const discovery_core::DiscoveryAnnouncement &announcement)
+    /**
+     * @brief Hands a discovered peer to the transport engine.
+     */
+    void integrate_with_transport(
+        const discovery_core::DiscoveryAnnouncement &announcement)
     {
-      transport_core::PeerInfo peer;
-      peer.node_id = announcement.node_id;
-      peer.host = announcement.host;
-      peer.port = announcement.port;
+      transport_core::PeerInfo peer{
+          announcement.node_id,
+          announcement.host,
+          announcement.port};
 
-      if (!peer.valid())
+      if (!peer.is_valid())
       {
         return;
       }
 
-      auto known = context_.transport_ref().peers().get(peer.node_id);
-      if (known.has_value())
+      auto transport_result = context_.transport_checked();
+
+      if (transport_result.is_err())
       {
         return;
       }
 
-      context_.transport_ref().connect_peer(peer);
+      auto *transport = transport_result.value();
+
+      if (transport->peers().contains(peer.node_id))
+      {
+        return;
+      }
+
+      transport->connect_peer(peer);
     }
 
+    /**
+     * @brief Announces when the configured interval has elapsed.
+     */
     void maybe_announce()
     {
-      const auto &config = context_.config_ref();
-      const std::uint64_t now = now_ms();
+      auto config_result = context_.config_checked();
 
-      if (last_announce_at_ == 0 ||
-          now - last_announce_at_ >= config.announce_interval_ms)
+      if (config_result.is_err())
+      {
+        return;
+      }
+
+      const auto &config = *config_result.value();
+      const auto now = core_time::Timestamp::now();
+
+      if (!last_announce_at_.is_valid() ||
+          now.millis() - last_announce_at_.millis() >=
+              config.announce_interval.millis())
       {
         announce_now();
       }
     }
 
-    void expire_peers()
+    /**
+     * @brief Refreshes stale and expired peer states.
+     */
+    void refresh_peer_states()
     {
-      const auto &config = context_.config_ref();
-      const std::uint64_t now = now_ms();
+      auto config_result = context_.config_checked();
 
-      for (const auto &peer : registry_.all())
+      if (config_result.is_err())
       {
-        const std::uint64_t age =
-            now > peer.last_seen_at ? (now - peer.last_seen_at) : 0;
-
-        if (age >= config.peer_ttl_ms)
-        {
-          registry_.set_state(peer.announcement.node_id,
-                              discovery_types::DiscoveryPeerState::Expired);
-        }
-        else if (age >= config.peer_ttl_ms / 2)
-        {
-          registry_.set_state(peer.announcement.node_id,
-                              discovery_types::DiscoveryPeerState::Stale);
-        }
-        else
-        {
-          registry_.set_state(peer.announcement.node_id,
-                              discovery_types::DiscoveryPeerState::Alive);
-        }
+        return;
       }
+
+      const auto &config = *config_result.value();
+
+      registry_.refresh_states(
+          core_time::Timestamp::now(),
+          core_time::Duration::from_millis(
+              config.peer_ttl.millis() / 2),
+          config.peer_ttl);
     }
 
-    discovery_core::DiscoveryMessage make_announce_message() const
+    /**
+     * @brief Builds an announce message.
+     */
+    [[nodiscard]] discovery_core::DiscoveryMessage
+    make_announce_message() const
     {
-      discovery_core::DiscoveryMessage message;
-      message.type = discovery_types::DiscoveryMessageType::Announce;
-      message.from_node_id = local_node_id();
-      message.correlation_id = make_correlation_id("announce");
+      auto payload =
+          encode_announcement(
+              make_local_announcement());
 
-      const auto payload = encode_announcement(make_local_announcement());
-      message.payload = payload;
+      auto message =
+          discovery_core::DiscoveryMessage::announce(
+              local_node_id(),
+              std::move(payload));
+
+      message.correlation_id =
+          make_correlation_id("announce");
 
       return message;
     }
 
-    discovery_core::DiscoveryMessage make_probe_message() const
+    /**
+     * @brief Builds a probe message.
+     */
+    [[nodiscard]] discovery_core::DiscoveryMessage
+    make_probe_message() const
     {
-      discovery_core::DiscoveryMessage message;
-      message.type = discovery_types::DiscoveryMessageType::Probe;
-      message.from_node_id = local_node_id();
-      message.correlation_id = make_correlation_id("probe");
+      auto message =
+          discovery_core::DiscoveryMessage::probe(
+              local_node_id());
+
+      message.correlation_id =
+          make_correlation_id("probe");
+
       return message;
     }
 
-    discovery_core::DiscoveryMessage make_reply_message(
+    /**
+     * @brief Builds a reply message.
+     */
+    [[nodiscard]] discovery_core::DiscoveryMessage
+    make_reply_message(
         const std::string &to_node_id,
         const std::string &correlation_id) const
     {
-      discovery_core::DiscoveryMessage message;
-      message.type = discovery_types::DiscoveryMessageType::Reply;
-      message.from_node_id = local_node_id();
+      auto payload =
+          encode_announcement(
+              make_local_announcement());
+
+      auto message =
+          discovery_core::DiscoveryMessage::reply(
+              local_node_id(),
+              std::move(payload));
+
       message.to_node_id = to_node_id;
       message.correlation_id = correlation_id;
-      message.payload = encode_announcement(make_local_announcement());
+
       return message;
     }
 
-    discovery_core::DiscoveryAnnouncement make_local_announcement() const
+    /**
+     * @brief Builds an outbound envelope.
+     */
+    [[nodiscard]] static discovery_core::DiscoveryEnvelope
+    make_outbound_envelope(
+        discovery_core::DiscoveryMessage message,
+        const std::string &host,
+        std::uint16_t port)
     {
-      discovery_core::DiscoveryAnnouncement announcement;
-      announcement.node_id = local_node_id();
-      announcement.host = context_.config_ref().announce_host;
-      announcement.port = context_.config_ref().announce_port;
-      announcement.timestamp = now_ms();
-      return announcement;
+      return discovery_core::DiscoveryEnvelope{
+          std::move(message),
+          host,
+          port};
     }
 
-    static std::vector<std::uint8_t> encode_announcement(
+    /**
+     * @brief Builds local announcement from current config.
+     */
+    [[nodiscard]] discovery_core::DiscoveryAnnouncement
+    make_local_announcement() const
+    {
+      auto config_result = context_.config_checked();
+
+      if (config_result.is_err())
+      {
+        return {};
+      }
+
+      const auto &config = *config_result.value();
+
+      return discovery_core::DiscoveryAnnouncement{
+          local_node_id(),
+          config.announce_host,
+          config.announce_port};
+    }
+
+    /**
+     * @brief Encodes one announcement payload.
+     *
+     * Format:
+     * - node_id string
+     * - host string
+     * - uint16 port
+     * - int64 timestamp_millis
+     */
+    [[nodiscard]] static std::vector<std::uint8_t>
+    encode_announcement(
         const discovery_core::DiscoveryAnnouncement &announcement)
     {
-      const std::uint32_t node_id_size =
-          static_cast<std::uint32_t>(announcement.node_id.size());
-      const std::uint32_t host_size =
-          static_cast<std::uint32_t>(announcement.host.size());
+      if (!announcement.is_valid())
+      {
+        return {};
+      }
 
-      const std::size_t total_size =
-          sizeof(std::uint32_t) + node_id_size +
-          sizeof(std::uint32_t) + host_size +
-          sizeof(std::uint16_t) +
-          sizeof(std::uint64_t);
+      std::vector<std::uint8_t> buffer;
 
-      std::vector<std::uint8_t> buffer(total_size);
-      std::size_t offset = 0;
+      append_string(buffer, announcement.node_id);
+      append_string(buffer, announcement.host);
 
-      write_string(buffer, offset, announcement.node_id);
-      write_string(buffer, offset, announcement.host);
-      write_value(buffer, offset, announcement.port);
-      write_value(buffer, offset, announcement.timestamp);
+      store_utils::Serializer::append_u16(
+          buffer,
+          announcement.port);
+
+      store_utils::Serializer::append_i64(
+          buffer,
+          announcement.timestamp.millis());
 
       return buffer;
     }
 
-    static std::optional<discovery_core::DiscoveryAnnouncement> decode_announcement(
-        const std::vector<std::uint8_t> &buffer)
+    /**
+     * @brief Decodes one announcement payload.
+     */
+    [[nodiscard]] static std::optional<discovery_core::DiscoveryAnnouncement>
+    decode_announcement(const std::vector<std::uint8_t> &buffer)
+    {
+      if (buffer.empty())
+      {
+        return std::nullopt;
+      }
+
+      return decode_announcement(
+          std::span<const std::uint8_t>(buffer.data(), buffer.size()));
+    }
+
+    /**
+     * @brief Decodes one announcement payload.
+     */
+    [[nodiscard]] static std::optional<discovery_core::DiscoveryAnnouncement>
+    decode_announcement(std::span<const std::uint8_t> buffer)
     {
       std::size_t offset = 0;
 
-      discovery_core::DiscoveryAnnouncement announcement;
+      discovery_core::DiscoveryAnnouncement announcement{};
 
       if (!read_string(buffer, offset, announcement.node_id))
       {
@@ -487,22 +718,33 @@ namespace softadastra::discovery::engine
         return std::nullopt;
       }
 
-      if (!read_value(buffer, offset, announcement.port))
+      if (!store_utils::Serializer::read_u16(
+              buffer,
+              offset,
+              announcement.port))
       {
         return std::nullopt;
       }
 
-      if (!read_value(buffer, offset, announcement.timestamp))
+      std::int64_t timestamp_millis = 0;
+
+      if (!store_utils::Serializer::read_i64(
+              buffer,
+              offset,
+              timestamp_millis))
       {
         return std::nullopt;
       }
+
+      announcement.timestamp =
+          core_time::Timestamp::from_millis(timestamp_millis);
 
       if (offset != buffer.size())
       {
         return std::nullopt;
       }
 
-      if (!announcement.valid())
+      if (!announcement.is_valid())
       {
         return std::nullopt;
       }
@@ -510,81 +752,81 @@ namespace softadastra::discovery::engine
       return announcement;
     }
 
-    const std::string &local_node_id() const
+    /**
+     * @brief Returns local node id from config.
+     */
+    [[nodiscard]] std::string local_node_id() const
     {
-      return context_.config_ref().node_id;
-    }
+      auto config_result = context_.config_checked();
 
-    std::string make_correlation_id(const std::string &prefix) const
-    {
-      return prefix + "-" + std::to_string(now_ms());
-    }
-
-    template <typename T>
-    static void write_value(std::vector<std::uint8_t> &buffer,
-                            std::size_t &offset,
-                            T value)
-    {
-      std::memcpy(buffer.data() + offset, &value, sizeof(T));
-      offset += sizeof(T);
-    }
-
-    static void write_string(std::vector<std::uint8_t> &buffer,
-                             std::size_t &offset,
-                             const std::string &value)
-    {
-      const std::uint32_t size = static_cast<std::uint32_t>(value.size());
-      std::memcpy(buffer.data() + offset, &size, sizeof(std::uint32_t));
-      offset += sizeof(std::uint32_t);
-
-      if (size > 0)
+      if (config_result.is_err())
       {
-        std::memcpy(buffer.data() + offset, value.data(), size);
-        offset += size;
-      }
-    }
-
-    template <typename T>
-    static bool read_value(const std::vector<std::uint8_t> &buffer,
-                           std::size_t &offset,
-                           T &value)
-    {
-      if (offset + sizeof(T) > buffer.size())
-      {
-        return false;
+        return {};
       }
 
-      std::memcpy(&value, buffer.data() + offset, sizeof(T));
-      offset += sizeof(T);
-      return true;
+      return config_result.value()->node_id;
     }
 
-    static bool read_string(const std::vector<std::uint8_t> &buffer,
-                            std::size_t &offset,
-                            std::string &value)
+    /**
+     * @brief Creates a correlation id.
+     */
+    [[nodiscard]] static std::string
+    make_correlation_id(const std::string &prefix)
     {
-      if (offset + sizeof(std::uint32_t) > buffer.size())
-      {
-        return false;
-      }
+      return prefix + "-" +
+             std::to_string(core_time::Timestamp::now().millis());
+    }
 
+    /**
+     * @brief Appends a size-prefixed string.
+     */
+    static void append_string(
+        std::vector<std::uint8_t> &buffer,
+        const std::string &value)
+    {
+      store_utils::Serializer::append_u32(
+          buffer,
+          static_cast<std::uint32_t>(value.size()));
+
+      buffer.insert(
+          buffer.end(),
+          value.begin(),
+          value.end());
+    }
+
+    /**
+     * @brief Reads a size-prefixed string.
+     */
+    [[nodiscard]] static bool read_string(
+        std::span<const std::uint8_t> buffer,
+        std::size_t &offset,
+        std::string &value)
+    {
       std::uint32_t size = 0;
-      std::memcpy(&size, buffer.data() + offset, sizeof(std::uint32_t));
-      offset += sizeof(std::uint32_t);
 
-      if (offset + size > buffer.size())
+      if (!store_utils::Serializer::read_u32(
+              buffer,
+              offset,
+              size))
       {
         return false;
       }
 
-      value.assign(reinterpret_cast<const char *>(buffer.data() + offset), size);
-      offset += size;
-      return true;
-    }
+      if (!store_utils::Serializer::can_read(
+              buffer,
+              offset,
+              size))
+      {
+        return false;
+      }
 
-    static std::uint64_t now_ms()
-    {
-      return static_cast<std::uint64_t>(std::time(nullptr)) * 1000ULL;
+      value.assign(
+          reinterpret_cast<const char *>(buffer.data() + offset),
+          size);
+
+      offset += size;
+
+      return true;
     }
 
   private:
@@ -595,10 +837,12 @@ namespace softadastra::discovery::engine
     discovery_server::DiscoveryServer server_;
     discovery_peer::DiscoveryRegistry registry_;
 
-    discovery_types::DiscoveryStatus status_{discovery_types::DiscoveryStatus::Stopped};
-    std::uint64_t last_announce_at_{0};
+    discovery_types::DiscoveryStatus status_{
+        discovery_types::DiscoveryStatus::Stopped};
+
+    core_time::Timestamp last_announce_at_{};
   };
 
 } // namespace softadastra::discovery::engine
 
-#endif
+#endif // SOFTADASTRA_DISCOVERY_ENGINE_HPP

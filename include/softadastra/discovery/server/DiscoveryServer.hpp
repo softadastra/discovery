@@ -1,5 +1,16 @@
-/*
- * DiscoveryServer.hpp
+/**
+ *
+ *  @file DiscoveryServer.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2026, Softadastra.
+ *  All rights reserved.
+ *  https://github.com/softadastra/softadastra
+ *
+ *  Licensed under the Apache License, Version 2.0.
+ *
+ *  Softadastra Discovery
+ *
  */
 
 #ifndef SOFTADASTRA_DISCOVERY_SERVER_HPP
@@ -16,25 +27,39 @@ namespace softadastra::discovery::server
   namespace core = softadastra::discovery::core;
 
   /**
-   * @brief Inbound discovery server
+   * @brief Thin inbound discovery server.
    *
-   * Responsible for:
-   * - starting and stopping the backend listener side
-   * - polling received discovery envelopes from the backend
+   * DiscoveryServer is a small server-side wrapper around an
+   * IDiscoveryBackend.
    *
-   * This class does not contain peer registry or transport logic.
-   * It is a thin server-side wrapper around the discovery backend.
+   * It is responsible for:
+   * - starting the backend listener
+   * - stopping the backend listener
+   * - polling received discovery envelopes
+   *
+   * It does not contain peer registry logic.
+   * It does not contain transport integration logic.
    */
   class DiscoveryServer
   {
   public:
-    explicit DiscoveryServer(backend::IDiscoveryBackend &backend)
-        : backend_(backend)
+    /**
+     * @brief Creates a discovery server from a backend.
+     *
+     * The backend is not owned by the server.
+     *
+     * @param discovery_backend Discovery backend reference.
+     */
+    explicit DiscoveryServer(
+        backend::IDiscoveryBackend &discovery_backend) noexcept
+        : backend_(discovery_backend)
     {
     }
 
     /**
-     * @brief Start the server/backend
+     * @brief Starts the server/backend.
+     *
+     * @return true on success.
      */
     bool start()
     {
@@ -42,7 +67,7 @@ namespace softadastra::discovery::server
     }
 
     /**
-     * @brief Stop the server/backend
+     * @brief Stops the server/backend.
      */
     void stop()
     {
@@ -50,21 +75,55 @@ namespace softadastra::discovery::server
     }
 
     /**
-     * @brief Return whether the backend is currently running
+     * @brief Returns whether the backend is currently running.
+     *
+     * @return true when running.
      */
-    bool running() const noexcept
+    [[nodiscard]] bool is_running() const noexcept
     {
-      return backend_.running();
+      return backend_.is_running();
     }
 
     /**
-     * @brief Poll one received discovery envelope
+     * @brief Backward-compatible running alias.
+     *
+     * @return true when running.
+     */
+    [[nodiscard]] bool running() const noexcept
+    {
+      return is_running();
+    }
+
+    /**
+     * @brief Polls one received discovery envelope.
      *
      * Returns std::nullopt when no inbound message is available.
+     *
+     * @return Received envelope or std::nullopt.
      */
-    std::optional<core::DiscoveryEnvelope> poll()
+    [[nodiscard]] std::optional<core::DiscoveryEnvelope> poll()
     {
       return backend_.poll();
+    }
+
+    /**
+     * @brief Returns the underlying backend.
+     *
+     * @return Backend reference.
+     */
+    [[nodiscard]] backend::IDiscoveryBackend &backend() noexcept
+    {
+      return backend_;
+    }
+
+    /**
+     * @brief Returns the underlying backend.
+     *
+     * @return Backend const reference.
+     */
+    [[nodiscard]] const backend::IDiscoveryBackend &backend() const noexcept
+    {
+      return backend_;
     }
 
   private:
@@ -73,4 +132,4 @@ namespace softadastra::discovery::server
 
 } // namespace softadastra::discovery::server
 
-#endif
+#endif // SOFTADASTRA_DISCOVERY_SERVER_HPP
