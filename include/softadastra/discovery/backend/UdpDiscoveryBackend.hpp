@@ -93,10 +93,11 @@ namespace softadastra::discovery::backend
         return false;
       }
 
-      socket_.set_reuse_addr(true);
-      socket_.set_broadcast(config_.enable_broadcast);
-      socket_.set_recv_timeout(config_.announce_interval);
-      socket_.set_send_timeout(config_.announce_interval);
+      if (!configure_socket())
+      {
+        socket_.close();
+        return false;
+      }
 
       if (!socket_.bind(config_.bind_host, config_.bind_port))
       {
@@ -204,6 +205,32 @@ namespace softadastra::discovery::backend
     [[nodiscard]] const core::DiscoveryConfig &config() const noexcept
     {
       return config_;
+    }
+
+  private:
+    [[nodiscard]] bool configure_socket()
+    {
+      if (!socket_.set_reuse_addr(true))
+      {
+        return false;
+      }
+
+      if (!socket_.set_broadcast(config_.enable_broadcast))
+      {
+        return false;
+      }
+
+      if (!socket_.set_recv_timeout(config_.announce_interval))
+      {
+        return false;
+      }
+
+      if (!socket_.set_send_timeout(config_.announce_interval))
+      {
+        return false;
+      }
+
+      return true;
     }
 
   private:
