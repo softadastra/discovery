@@ -8,17 +8,13 @@ It allows a node to announce itself, probe the local network, receive peer annou
 
 The core rule is:
 
-> Discovery finds peers. Transport connects peers.
+> *Discovery finds peers. Transport connects peers.*
 
 ## Purpose
 
-Softadastra is designed for offline-first and local-first systems.
+Softadastra is designed for offline-first and local-first systems. In that model, nodes must be able to find each other without depending on a central cloud service.
 
-In that model, nodes must be able to find each other without depending on a central cloud service.
-
-The discovery module provides this first local peer discovery layer.
-
-It helps Softadastra:
+The discovery module provides this first local peer discovery layer. It helps Softadastra:
 
 - announce local node presence
 - probe for nearby nodes
@@ -32,103 +28,84 @@ It helps Softadastra:
 
 `softadastra/discovery` provides:
 
-- discovery messages
-- discovery announcements
+- discovery messages and announcements
 - discovery envelopes
 - datagram encoding and decoding
 - peer discovery registry
 - discovery backend interface
 - UDP discovery backend
-- discovery client wrapper
-- discovery server wrapper
+- discovery client and server wrappers
 - discovery engine
 - high-level discovery service
 - public peer representation
 
-## What this module does not do
-
-This module does not implement:
+## What this module does NOT do
 
 - durable persistence
 - store mutation
-- sync queueing
-- sync conflict resolution
+- sync queueing or conflict resolution
 - TCP connection handling
 - message transport after discovery
-- encryption
-- authentication
+- encryption or authentication
 - distributed consensus
-
-Those belong to other Softadastra modules.
 
 ## Design Principles
 
 ### Discovery is separate from Transport
 
-Discovery answers:
+```
+Discovery  →  Who is available nearby?
+Transport  →  How do I connect and send messages to this peer?
+```
 
-```text id="discovery-question"
-Who is available nearby?
+### Discovery is lightweight
 
-Transport answers:
+Discovery messages carry only the minimum information needed to identify and reach a peer: `node_id`, `host`, `port`, `timestamp`.
 
-How do I connect and send messages to this peer?
+### Discovery does not own sync
 
-That separation keeps the system clean.
+Discovery never applies sync operations. It only finds peers and gives their connection information to transport.
 
-Discovery is lightweight
+### Registry is observable
 
-Discovery messages are small.
+The discovery registry tracks peer state: `Discovered`, `Alive`, `Stale`, `Expired`.
 
-They are designed to carry only the minimum information needed to identify and reach a peer:
+### Layering
 
-node id
-host
-port
-timestamp
-Discovery does not own sync
+```
+WAL        →  durability
+Store      →  local state
+Sync       →  operation propagation logic
+Transport  →  peer message delivery
+Discovery  →  peer discovery
+```
 
-Discovery never applies sync operations.
+Discovery sits beside transport. It feeds discovered peers into transport.
 
-It only finds peers and gives their connection information to transport.
+## Installation
 
-Registry is observable
-
-The discovery registry tracks peer state:
-
-Discovered
-Alive
-Stale
-Expired
-
-This makes peer state inspectable and testable.
-
-Layering
-WAL        -> durability
-Store      -> local state
-Sync       -> operation propagation logic
-Transport  -> peer message delivery
-Discovery  -> peer discovery
-
-Discovery sits beside transport.
-
-It feeds discovered peers into transport.
-
-Installation
+```bash
 vix add @softadastra/discovery
-Main Header
+```
 
-Use the public aggregator:
+### Main header
 
+```cpp
 #include <softadastra/discovery/Discovery.hpp>
+```
 
-For full integration with store, sync, and transport:
+For full integration:
 
+```cpp
 #include <softadastra/store/Store.hpp>
 #include <softadastra/sync/Sync.hpp>
 #include <softadastra/transport/Transport.hpp>
 #include <softadastra/discovery/Discovery.hpp>
-Module Structure
+```
+
+## Module Structure
+
+```
 include/softadastra/discovery/
 ├── backend/
 │   ├── IDiscoveryBackend.hpp
@@ -164,543 +141,403 @@ include/softadastra/discovery/
 ├── DiscoveryOptions.hpp
 ├── DiscoveryService.hpp
 └── Peer.hpp
-Core Concepts
-DiscoveryMessageType
+```
 
-Discovery messages can be:
+## Core Concepts
 
-discovery::types::DiscoveryMessageType::Announce
-discovery::types::DiscoveryMessageType::Probe
-discovery::types::DiscoveryMessageType::Reply
+### `DiscoveryMessageType`
+
+- `discovery::types::DiscoveryMessageType::Announce`
+- `discovery::types::DiscoveryMessageType::Probe`
+- `discovery::types::DiscoveryMessageType::Reply`
 
 Helpers:
 
+```cpp
 discovery::types::to_string(type);
 discovery::types::is_valid(type);
 discovery::types::is_announcement(type);
 discovery::types::is_probe_flow(type);
-DiscoveryPeerState
+```
 
-A discovered peer can be:
+### `DiscoveryPeerState`
 
-discovery::types::DiscoveryPeerState::Discovered
-discovery::types::DiscoveryPeerState::Alive
-discovery::types::DiscoveryPeerState::Stale
-discovery::types::DiscoveryPeerState::Expired
+- `discovery::types::DiscoveryPeerState::Discovered`
+- `discovery::types::DiscoveryPeerState::Alive`
+- `discovery::types::DiscoveryPeerState::Stale`
+- `discovery::types::DiscoveryPeerState::Expired`
 
 Helpers:
 
+```cpp
 discovery::types::to_string(state);
 discovery::types::is_valid(state);
 discovery::types::is_available(state);
 discovery::types::is_unavailable(state);
 discovery::types::is_expired(state);
-DiscoveryStatus
+```
 
-The discovery engine can be:
+### `DiscoveryStatus`
 
-discovery::types::DiscoveryStatus::Stopped
-discovery::types::DiscoveryStatus::Starting
-discovery::types::DiscoveryStatus::Running
-discovery::types::DiscoveryStatus::Stopping
-discovery::types::DiscoveryStatus::Failed
+- `discovery::types::DiscoveryStatus::Stopped`
+- `discovery::types::DiscoveryStatus::Starting`
+- `discovery::types::DiscoveryStatus::Running`
+- `discovery::types::DiscoveryStatus::Stopping`
+- `discovery::types::DiscoveryStatus::Failed`
 
 Helpers:
 
+```cpp
 discovery::types::to_string(status);
 discovery::types::is_valid(status);
 discovery::types::is_running(status);
 discovery::types::is_transitioning(status);
 discovery::types::is_terminal(status);
-DiscoveryConfig
+```
 
-DiscoveryConfig is the low-level runtime configuration.
+## `DiscoveryConfig`
 
-auto config =
-    discovery::core::DiscoveryConfig::local(
-        "node-a",
-        9400,
-        7000);
+Low-level runtime configuration.
 
-Parameters:
+```cpp
+// Local
+auto config = discovery::core::DiscoveryConfig::local("node-a", 9400, 7000);
 
-node-a -> local node id
-9400   -> UDP discovery bind port
-7000   -> transport port announced to peers
+// LAN broadcast
+auto config = discovery::core::DiscoveryConfig::lan("node-a", 9400, 7000);
 
-LAN broadcast configuration:
-
-auto config =
-    discovery::core::DiscoveryConfig::lan(
-        "node-a",
-        9400,
-        7000);
-
-Customize timing:
-
-config.announce_interval =
-    core::time::Duration::from_seconds(3);
-
-config.peer_ttl =
-    core::time::Duration::from_seconds(15);
-
-Validate:
+// Customize timing
+config.announce_interval = core::time::Duration::from_seconds(3);
+config.peer_ttl          = core::time::Duration::from_seconds(15);
 
 if (!config.is_valid())
 {
-  return 1;
+    return 1;
 }
-DiscoveryOptions
+```
 
-DiscoveryOptions is the simpler user-facing configuration used by DiscoveryService.
+Parameters: `node-a` → local node id, `9400` → UDP discovery bind port, `7000` → transport port announced to peers.
 
-auto options =
-    discovery::DiscoveryOptions::local(
-        "node-a",
-        9400,
-        7000);
+## `DiscoveryOptions`
 
-Convert to core config:
+Simpler user-facing configuration used by `DiscoveryService`.
 
-auto config =
-    options.to_config();
+```cpp
+auto options = discovery::DiscoveryOptions::local("node-a", 9400, 7000);
 
-Validate:
+auto config = options.to_config();
 
 if (!options.is_valid())
 {
-  return 1;
+    return 1;
 }
 
-Backward-compatible alias:
-
+// Backward-compatible alias
 options.valid();
-DiscoveryAnnouncement
+```
 
-DiscoveryAnnouncement is the payload that advertises a node.
+## `DiscoveryAnnouncement`
 
-discovery::core::DiscoveryAnnouncement announcement{
-    "node-a",
-    "127.0.0.1",
-    7000};
+The payload that advertises a node. Contains: `node_id`, `host`, `port`, `timestamp`.
+
+```cpp
+discovery::core::DiscoveryAnnouncement announcement{"node-a", "127.0.0.1", 7000};
 
 if (announcement.is_valid())
 {
-  announcement.touch();
+    announcement.touch();
 }
 
-Local helper:
+// Local helper
+auto announcement = discovery::core::DiscoveryAnnouncement::local("node-a", 7000);
+```
 
-auto announcement =
-    discovery::core::DiscoveryAnnouncement::local(
-        "node-a",
-        7000);
+## `DiscoveryMessage`
 
-It contains:
+The logical discovery message exchanged between nodes.
 
-node_id
-host
-port
-timestamp
-DiscoveryMessage
+```cpp
+// Announcement
+auto message = discovery::core::DiscoveryMessage::announce("node-a", payload);
 
-DiscoveryMessage is the logical discovery message exchanged between nodes.
+// Probe
+auto probe = discovery::core::DiscoveryMessage::probe("node-a");
 
-Create an announcement message:
+// Reply
+auto reply = discovery::core::DiscoveryMessage::reply("node-a", payload);
 
-auto message =
-    discovery::core::DiscoveryMessage::announce(
-        "node-a",
-        payload);
-
-Create a probe:
-
-auto probe =
-    discovery::core::DiscoveryMessage::probe("node-a");
-
-Create a reply:
-
-auto reply =
-    discovery::core::DiscoveryMessage::reply(
-        "node-a",
-        payload);
-
-Set metadata:
-
-message.to_node_id = "node-b";
+// Metadata
+message.to_node_id     = "node-b";
 message.correlation_id = "announce-1";
-
-Validate:
 
 if (!message.is_valid())
 {
-  return 1;
+    return 1;
 }
-DiscoveryEnvelope
+```
 
-DiscoveryEnvelope wraps a discovery message with network metadata.
+## `DiscoveryEnvelope`
 
-discovery::core::DiscoveryEnvelope envelope{
-    message,
-    "127.0.0.1",
-    9400};
+Wraps a discovery message with network metadata: `message`, `from_host`, `from_port`, `to_host`, `to_port`, `timestamp`, `retry_count`, `last_attempt_at`.
+
+```cpp
+discovery::core::DiscoveryEnvelope envelope{message, "127.0.0.1", 9400};
 
 if (envelope.is_valid() && envelope.has_destination())
 {
-  envelope.mark_attempt();
+    envelope.mark_attempt();
 }
+```
 
-It tracks:
+## `Datagram`
 
-message
-from_host
-from_port
-to_host
-to_port
-timestamp
-retry_count
-last_attempt_at
-Datagram
+The raw UDP payload container.
 
-Datagram is the raw UDP payload container.
-
-discovery::utils::Datagram datagram{
-    "127.0.0.1",
-    9400,
-    {1, 2, 3}};
+```cpp
+discovery::utils::Datagram datagram{"127.0.0.1", 9400, {1, 2, 3}};
 
 if (datagram.is_valid())
 {
-  auto size = datagram.payload_size();
+    auto size = datagram.payload_size();
 }
-Encoding and Decoding
+```
 
-Encode a discovery message:
+## Encoding and Decoding
 
-auto encoded =
-    discovery::encoding::DiscoveryEncoder::encode_message(message);
+```cpp
+// Encode a message
+auto encoded = discovery::encoding::DiscoveryEncoder::encode_message(message);
 
-Wrap into a datagram:
+// Wrap into a datagram
+auto datagram = discovery::encoding::DiscoveryEncoder::make_datagram(
+    message, "127.0.0.1", 9400);
 
-auto datagram =
-    discovery::encoding::DiscoveryEncoder::make_datagram(
-        message,
-        "127.0.0.1",
-        9400);
-
-Decode a message:
-
-auto decoded =
-    discovery::encoding::DiscoveryDecoder::decode_message(encoded);
+// Decode a message
+auto decoded = discovery::encoding::DiscoveryDecoder::decode_message(encoded);
 
 if (decoded.has_value())
 {
-  auto type = decoded->type;
+    auto type = decoded->type;
 }
 
-Decode a datagram:
+// Decode a datagram
+auto decoded = discovery::encoding::DiscoveryDecoder::decode_datagram(datagram);
+```
 
-auto decoded =
-    discovery::encoding::DiscoveryDecoder::decode_datagram(datagram);
-DiscoveredPeer
+## `DiscoveredPeer`
 
-DiscoveredPeer stores runtime state for one discovered peer.
+Stores runtime state for one discovered peer: `announcement`, `state`, `last_seen_at`, `error_count`.
 
+```cpp
 discovery::peer::DiscoveredPeer peer{announcement};
 
 peer.mark_alive();
 
 if (peer.available())
 {
-  auto transport_peer =
-      peer.to_peer_info();
+    auto transport_peer = peer.to_peer_info();
 }
 
-It tracks:
-
-announcement
-state
-last_seen_at
-error_count
-
-State helpers:
-
+// State helpers
 peer.discovered();
 peer.alive();
 peer.stale();
 peer.expired();
 peer.available();
 
-Runtime updates:
-
+// Runtime updates
 peer.mark_discovered();
 peer.mark_alive();
 peer.mark_stale();
 peer.mark_expired();
 peer.mark_error();
 peer.touch();
-DiscoveryRegistry
+```
 
-DiscoveryRegistry stores discovered peers in memory.
+## `DiscoveryRegistry`
 
+Stores discovered peers in memory.
+
+```cpp
 discovery::peer::DiscoveryRegistry registry;
 
 registry.upsert_announcement(announcement);
 
-Find a peer:
-
-auto *peer =
-    registry.find("node-b");
+// Find a peer
+auto *peer = registry.find("node-b");
 
 if (peer != nullptr && peer->alive())
 {
-  // peer is alive
+    // peer is alive
 }
 
-Inspect peers:
-
+// Inspect
 registry.size();
 registry.available_peers();
 registry.alive_peers();
 registry.stale_peers();
 registry.expired_peers();
 
-Convert to transport peers:
+// Convert to transport peers
+auto transport_peers = registry.transport_peers();
 
-auto transport_peers =
-    registry.transport_peers();
-
-Refresh stale and expired peers:
-
+// Refresh stale and expired peers
 registry.refresh_states(
     core::time::Timestamp::now(),
     core::time::Duration::from_seconds(8),
     core::time::Duration::from_seconds(15));
 
-Remove expired peers:
-
+// Remove expired peers
 registry.prune_expired();
-Backend Interface
+```
 
-IDiscoveryBackend defines the low-level discovery delivery contract.
+## Backend Interface
 
-A backend implements:
+`IDiscoveryBackend` defines the low-level discovery delivery contract. A backend implements: `start()`, `stop()`, `is_running()`, `send()`, `poll()`.
 
-start()
-stop()
-is_running()
-send(envelope)
-poll()
-
-Skeleton:
-
-class MyDiscoveryBackend
-    : public discovery::backend::IDiscoveryBackend
+```cpp
+class MyDiscoveryBackend : public discovery::backend::IDiscoveryBackend
 {
 public:
-  bool start() override
-  {
-    return true;
-  }
+    bool start() override { return true; }
+    void stop() override {}
+    bool is_running() const noexcept override { return true; }
 
-  void stop() override
-  {
-  }
+    bool send(const discovery::core::DiscoveryEnvelope &envelope) override
+    {
+        return envelope.is_valid();
+    }
 
-  bool is_running() const noexcept override
-  {
-    return true;
-  }
-
-  bool send(const discovery::core::DiscoveryEnvelope &envelope) override
-  {
-    return envelope.is_valid();
-  }
-
-  std::optional<discovery::core::DiscoveryEnvelope> poll() override
-  {
-    return std::nullopt;
-  }
+    std::optional<discovery::core::DiscoveryEnvelope> poll() override
+    {
+        return std::nullopt;
+    }
 };
-UDP Backend
+```
 
-UdpDiscoveryBackend is the default Linux UDP backend.
+## UDP Backend
 
-auto config =
-    discovery::core::DiscoveryConfig::local(
-        "node-a",
-        9400,
-        7000);
+`UdpDiscoveryBackend` is the default Linux UDP backend. Currently simple and blocking.
+
+```cpp
+auto config = discovery::core::DiscoveryConfig::local("node-a", 9400, 7000);
 
 discovery::backend::UdpDiscoveryBackend backend{config};
 
 if (!backend.start())
 {
-  return 1;
+    return 1;
 }
 
 backend.stop();
+```
 
-The current UDP backend is simple and blocking.
+## `DiscoveryClient`
 
-DiscoveryClient
+Thin outbound wrapper around a discovery backend.
 
-DiscoveryClient is a thin outbound wrapper around a discovery backend.
-
+```cpp
 discovery::client::DiscoveryClient client{backend};
 
-client.send_probe(
-    "127.0.0.1",
-    9400,
-    "node-a");
+// Probe
+client.send_probe("127.0.0.1", 9400, "node-a");
 
-Send an announcement:
-
+// Announce
 client.send_announce(
     config.broadcast_host,
     config.broadcast_port,
     config.node_id,
     payload);
 
-Send a reply:
+// Reply
+client.send_reply("127.0.0.1", 9400, "node-a", payload);
+```
 
-client.send_reply(
-    "127.0.0.1",
-    9400,
-    "node-a",
-    payload);
-DiscoveryServer
+## `DiscoveryServer`
 
-DiscoveryServer is a thin inbound wrapper around a discovery backend.
+Thin inbound wrapper around a discovery backend.
 
+```cpp
 discovery::server::DiscoveryServer server{backend};
 
 server.start();
 
-auto inbound =
-    server.poll();
+auto inbound = server.poll();
 
 if (inbound.has_value())
 {
-  auto message = inbound->message;
+    auto message = inbound->message;
 }
 
 server.stop();
-DiscoveryContext
+```
 
-DiscoveryContext connects discovery to transport.
+## `DiscoveryContext`
 
-discovery::core::DiscoveryContext context{
-    discovery_config,
-    transport_engine};
+Connects discovery to transport.
+
+```cpp
+discovery::core::DiscoveryContext context{discovery_config, transport_engine};
 
 if (!context.is_valid())
 {
-  return 1;
+    return 1;
 }
 
-Checked access:
-
-auto transport =
-    context.transport_checked();
+// Checked access
+auto transport = context.transport_checked();
 
 if (transport.is_ok())
 {
-  auto *engine = transport.value();
+    auto *engine = transport.value();
 }
-DiscoveryEngine
+```
 
-DiscoveryEngine is the high-level discovery facade.
+## `DiscoveryEngine`
 
-It coordinates:
+The high-level discovery facade. Coordinates: backend lifecycle, announce/probe messages, inbound polling, peer registry updates, and transport integration.
 
-backend lifecycle
-announce messages
-probe messages
-inbound polling
-peer registry updates
-transport integration
-
-Create an engine:
-
-discovery::core::DiscoveryConfig discovery_config =
-    discovery::core::DiscoveryConfig::local(
-        "node-a",
-        9400,
-        7000);
+```cpp
+auto discovery_config = discovery::core::DiscoveryConfig::local("node-a", 9400, 7000);
 
 discovery::core::DiscoveryContext discovery_context{
     discovery_config,
     transport_engine};
 
-discovery::backend::UdpDiscoveryBackend discovery_backend{
-    discovery_config};
+discovery::backend::UdpDiscoveryBackend discovery_backend{discovery_config};
 
 discovery::engine::DiscoveryEngine discovery_engine{
     discovery_context,
     discovery_backend};
 
-Start:
-
 if (!discovery_engine.start())
 {
-  return 1;
+    return 1;
 }
 
-Announce:
-
 discovery_engine.announce_now();
-
-Probe:
-
 discovery_engine.probe_now();
-
-Poll:
-
 discovery_engine.poll_once();
 
-Poll many:
+auto processed = discovery_engine.poll_many(16);
 
-auto processed =
-    discovery_engine.poll_many(16);
-
-Access peers:
-
-auto peers =
-    discovery_engine.available_transport_peers();
-
-Stop:
+auto peers = discovery_engine.available_transport_peers();
 
 discovery_engine.stop();
-DiscoveryService
+```
 
-DiscoveryService is the simple user-facing wrapper.
+## `DiscoveryService`
 
-It owns:
+The simple user-facing wrapper. Owns: `DiscoveryOptions`, `DiscoveryConfig`, `DiscoveryContext`, `UdpDiscoveryBackend`, `DiscoveryEngine`. Does **not** own `TransportEngine`.
 
-DiscoveryOptions
-DiscoveryConfig
-DiscoveryContext
-UdpDiscoveryBackend
-DiscoveryEngine
+```cpp
+auto options = discovery::DiscoveryOptions::local("node-a", 9400, 7000);
 
-It does not own TransportEngine.
+discovery::DiscoveryService service{options, transport_engine};
 
-auto options =
-    discovery::DiscoveryOptions::local(
-        "node-a",
-        9400,
-        7000);
-
-discovery::DiscoveryService service{
-    options,
-    transport_engine};
-
-service.on_peer_found(
-    [](const discovery::Peer &peer)
-    {
-      // peer discovered
-    });
+service.on_peer_found([](const discovery::Peer &peer) {
+    // peer discovered
+});
 
 service.start();
 service.announce_now();
@@ -708,41 +545,35 @@ service.probe_now();
 service.poll_many(16);
 service.stop();
 
-Get public peers:
+// Get public peers
+auto peers = service.peers();
 
-auto peers =
-    service.peers();
+// Check running state
+if (service.is_running()) {}
 
-Check running state:
-
-if (service.is_running())
-{
-  // discovery active
-}
-
-Backward-compatible alias:
-
+// Backward-compatible alias
 service.running();
-Public Peer
+```
 
-discovery::Peer is the simple public peer representation.
+## Public Peer
 
-discovery::Peer peer{
-    "node-b",
-    "127.0.0.1",
-    7001};
+`discovery::Peer` is the simple public peer representation.
+
+```cpp
+discovery::Peer peer{"node-b", "127.0.0.1", 7001};
 
 if (peer.is_valid())
 {
-  auto transport_peer =
-      peer.to_transport_peer();
+    auto transport_peer = peer.to_transport_peer();
 }
 
-Convert from internal peer:
+// Convert from internal peer
+auto public_peer = discovery::Peer::from_discovered_peer(discovered_peer);
+```
 
-auto public_peer =
-    discovery::Peer::from_discovered_peer(discovered_peer);
-Full Integration Example
+## Full Integration Example
+
+```cpp
 #include <filesystem>
 #include <iostream>
 
@@ -755,201 +586,189 @@ using namespace softadastra;
 
 int main()
 {
-  const std::string wal_path = "node-a.wal";
-  std::filesystem::remove(wal_path);
+    const std::string wal_path = "node-a.wal";
+    std::filesystem::remove(wal_path);
 
-  store::engine::StoreEngine store{
-      store::core::StoreConfig::durable(wal_path)};
+    store::engine::StoreEngine store{
+        store::core::StoreConfig::durable(wal_path)};
 
-  auto sync_config =
-      sync::core::SyncConfig::durable("node-a");
+    auto sync_config = sync::core::SyncConfig::durable("node-a");
 
-  sync::core::SyncContext sync_context{
-      store,
-      sync_config};
+    sync::core::SyncContext  sync_context{store, sync_config};
+    sync::engine::SyncEngine sync_engine{sync_context};
 
-  sync::engine::SyncEngine sync_engine{
-      sync_context};
+    auto transport_config = transport::core::TransportConfig::local(7000);
 
-  auto transport_config =
-      transport::core::TransportConfig::local(7000);
+    transport::core::TransportContext transport_context{
+        transport_config,
+        sync_engine};
 
-  transport::core::TransportContext transport_context{
-      transport_config,
-      sync_engine};
+    transport::backend::TcpTransportBackend transport_backend{transport_config};
 
-  transport::backend::TcpTransportBackend transport_backend{
-      transport_config};
+    transport::engine::TransportEngine transport_engine{
+        transport_context,
+        transport_backend};
 
-  transport::engine::TransportEngine transport_engine{
-      transport_context,
-      transport_backend};
+    if (!transport_engine.start())
+    {
+        return 1;
+    }
 
-  if (!transport_engine.start())
-  {
-    return 1;
-  }
+    auto discovery_options =
+        discovery::DiscoveryOptions::local("node-a", 9400, 7000);
 
-  auto discovery_options =
-      discovery::DiscoveryOptions::local(
-          "node-a",
-          9400,
-          7000);
+    discovery::DiscoveryService discovery_service{
+        discovery_options,
+        transport_engine};
 
-  discovery::DiscoveryService discovery_service{
-      discovery_options,
-      transport_engine};
-
-  discovery_service.on_peer_found(
-      [](const discovery::Peer &peer)
-      {
+    discovery_service.on_peer_found([](const discovery::Peer &peer) {
         std::cout << "peer found: "
-                  << peer.node_id
-                  << " "
-                  << peer.host
-                  << ":"
-                  << peer.port
-                  << "\n";
-      });
+                  << peer.node_id << " "
+                  << peer.host   << ":"
+                  << peer.port   << "\n";
+    });
 
-  if (!discovery_service.start())
-  {
+    if (!discovery_service.start())
+    {
+        transport_engine.stop();
+        return 1;
+    }
+
+    discovery_service.announce_now();
+    discovery_service.probe_now();
+    discovery_service.poll_many(8);
+
+    discovery_service.stop();
     transport_engine.stop();
-    return 1;
-  }
 
-  discovery_service.announce_now();
-  discovery_service.probe_now();
-  discovery_service.poll_many(8);
+    std::filesystem::remove(wal_path);
 
-  discovery_service.stop();
-  transport_engine.stop();
-
-  std::filesystem::remove(wal_path);
-
-  return 0;
+    return 0;
 }
-Discovery Flow
-1. Node starts TransportEngine
-2. Node starts DiscoveryEngine or DiscoveryService
-3. Node sends Announce over UDP
-4. Other nodes receive the announcement
-5. DiscoveryRegistry stores or refreshes the peer
-6. DiscoveredPeer becomes Alive
-7. DiscoveryEngine converts it to transport::core::PeerInfo
-8. TransportEngine connects to the peer
-9. Sync can now send messages through Transport
-Probe Flow
-1. Node sends Probe
-2. Nearby nodes receive Probe
-3. Each node replies with Reply
-4. Reply contains an encoded DiscoveryAnnouncement
-5. Receiver stores the peer
-6. Receiver integrates peer with Transport
-Peer Expiration
+```
+
+## Discovery Flow
+
+```
+1.  Node starts TransportEngine
+2.  Node starts DiscoveryEngine or DiscoveryService
+3.  Node sends Announce over UDP
+4.  Other nodes receive the announcement
+5.  DiscoveryRegistry stores or refreshes the peer
+6.  DiscoveredPeer becomes Alive
+7.  DiscoveryEngine converts it to transport::core::PeerInfo
+8.  TransportEngine connects to the peer
+9.  Sync can now send messages through Transport
+```
+
+## Probe Flow
+
+```
+1.  Node sends Probe
+2.  Nearby nodes receive Probe
+3.  Each node replies with Reply
+4.  Reply contains an encoded DiscoveryAnnouncement
+5.  Receiver stores the peer
+6.  Receiver integrates peer with Transport
+```
+
+## Peer Expiration
 
 Peers are refreshed on every valid announcement or reply.
 
-Over time:
+| Condition | State |
+|-----------|-------|
+| Recently seen | `Alive` |
+| Not seen for half TTL | `Stale` |
+| Not seen for full TTL | `Expired` |
 
-Recently seen peer -> Alive
-Not seen for half TTL -> Stale
-Not seen for full TTL -> Expired
-
-Expired peers can be pruned:
-
+```cpp
 registry.prune_expired();
-Examples
+```
 
-Available examples:
+## Examples
 
-discovery_minimal.cpp
-discovery_announcer.cpp
-discovery_listener.cpp
-discovery_roundtrip_demo.cpp
-discovery_codec.cpp
-discovery_registry.cpp
-discovery_service.cpp
-discovery_engine_setup.cpp
+| Example | Description |
+|---------|-------------|
+| `discovery_minimal.cpp` | Minimal setup |
+| `discovery_announcer.cpp` | Announce only |
+| `discovery_listener.cpp` | Listen only |
+| `discovery_roundtrip_demo.cpp` | Full roundtrip |
+| `discovery_codec.cpp` | Encoding and decoding |
+| `discovery_registry.cpp` | Registry management |
+| `discovery_service.cpp` | Service usage |
+| `discovery_engine_setup.cpp` | Engine setup |
 
-Build examples:
+```bash
+vix build
+```
 
-cmake --build build
+## Production Notes
 
-or with preset:
+The current UDP backend is intentionally simple. Recommended next steps:
 
-cmake --build --preset default
-Production Notes
+- async UDP backend
+- multicast backend
+- configurable network interfaces
+- secure peer identity and signed announcements
+- encrypted discovery payloads
+- rate limiting
+- structured metrics and tracing
+- persistent peer cache
+- LAN and edge discovery modes
+- P2P discovery integration
 
-The current UDP backend is intentionally simple.
+## Design Rules
 
-For production, the recommended next steps are:
+- Discovery finds peers
+- Transport connects peers
+- Sync owns operation meaning
+- Store owns state
+- WAL owns durability
+- Discovery must not mutate store
+- Discovery must not apply sync operations
+- Discovery must not resolve conflicts
+- Discovery must keep peer state observable
+- Backends must not contain registry logic
+- Backends must not contain transport integration logic
 
-async UDP backend
-multicast backend
-configurable network interfaces
-secure peer identity
-signed announcements
-encrypted discovery payloads
-rate limiting
-structured metrics
-discovery tracing
-persistent peer cache
-LAN and edge discovery modes
-integration with P2P discovery
-Design Rules
-Discovery finds peers.
-Transport connects peers.
-Sync owns operation meaning.
-Store owns state.
-WAL owns durability.
-Discovery must not mutate store.
-Discovery must not apply sync operations.
-Discovery must not resolve conflicts.
-Discovery must keep peer state observable.
-Backends must not contain registry logic.
-Backends must not contain transport integration logic.
-Dependencies
-Internal
-softadastra/core
-softadastra/store
-softadastra/transport
-External
-C++20 standard library
-Linux UDP sockets for the current backend
-Roadmap
-Public Discovery.hpp aggregator
-Stable high-level DiscoveryService
-UDP broadcast backend
-Local development discovery mode
-LAN discovery mode
-Multicast discovery backend
-Persistent peer cache
-Discovery metrics
-Discovery tracing
-Signed announcements
-Encrypted discovery payloads
-Peer trust policy
-P2P discovery integration
-Edge node discovery
-NAT-aware discovery helpers
-Summary
+## Dependencies
 
-softadastra/discovery is the local peer discovery layer.
+**Internal:**
+- `softadastra/core`
+- `softadastra/store`
+- `softadastra/transport`
 
-It provides:
+**External:**
+- C++20 standard library
+- Linux UDP sockets (current backend)
 
-discovery messages
-discovery announcements
-discovery envelopes
-datagrams
-encoding and decoding
-peer registry
-UDP backend
-client/server wrappers
-discovery engine
-high-level discovery service
+## Roadmap
 
-Its job is simple:
+- [ ] Public `Discovery.hpp` aggregator
+- [ ] Stable high-level `DiscoveryService`
+- [ ] UDP broadcast backend
+- [ ] Local development discovery mode
+- [ ] LAN discovery mode
+- [ ] Multicast discovery backend
+- [ ] Persistent peer cache
+- [ ] Discovery metrics and tracing
+- [ ] Signed and encrypted announcements
+- [ ] Peer trust policy
+- [ ] P2P and edge node discovery
+- [ ] NAT-aware discovery helpers
 
-find peers and hand them to transport.
+## Summary
+
+`softadastra/discovery` provides:
+
+- discovery messages and announcements
+- discovery envelopes and datagrams
+- encoding and decoding
+- peer registry
+- UDP backend
+- client/server wrappers
+- discovery engine
+- high-level discovery service
+
+> Its job is simple: find peers and hand them to transport.
