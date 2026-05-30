@@ -1,11 +1,18 @@
 {
-  "name": "discovery",
-  "namespace": "softadastra",
-  "version": "0.5.0",
-  "type": "library",
+  "authors": [
+    {
+      "github": "Gaspardkirira",
+      "name": "Gaspard Kirira"
+    }
+  ],
+  "deps": [
+    {
+      "id": "softadastra/transport",
+      "version": "0.10.1"
+    }
+  ],
+  "description": "Peer discovery primitives for reliable Softadastra networking.",
   "include": "include",
-  "license": "MIT",
-  "description": "Softadastra Discovery is a lightweight, offline-first discovery layer designed to find peers reliably across unstable networks.",
   "keywords": [
     "softadastra",
     "discovery",
@@ -31,17 +38,10 @@
     "infrastructure",
     "library"
   ],
+  "license": "MIT",
+  "name": "discovery",
+  "namespace": "softadastra",
   "repository": "https://github.com/softadastra/discovery",
-  "authors": [
-    {
-      "name": "Gaspard Kirira",
-      "github": "Gaspardkirira"
-    }
-  ],
-  "deps": [
-    {
-      "id": "softadastra/transport",
-      "version": "0.8.0"
-    }
-  ]
+  "type": "library",
+  "version": "0.6.0"
 }
