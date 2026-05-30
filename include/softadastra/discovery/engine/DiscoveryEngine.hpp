@@ -108,7 +108,7 @@ namespace softadastra::discovery::engine
     /**
      * @brief Move assignment.
      */
-    DiscoveryEngine &operator=(DiscoveryEngine &&) noexcept = default;
+    DiscoveryEngine &operator=(DiscoveryEngine &&) noexcept = delete;
 
     /**
      * @brief Starts the discovery engine.
