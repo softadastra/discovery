@@ -107,6 +107,13 @@ target_link_libraries(softadastra_discovery
         ${SOFTADASTRA_DISCOVERY_TRANSPORT_TARGET}
 )
 
+if(WIN32)
+    target_link_libraries(softadastra_discovery
+        PUBLIC
+            Ws2_32
+    )
+endif()
+
 # ========================
 # Include directories
 # ========================

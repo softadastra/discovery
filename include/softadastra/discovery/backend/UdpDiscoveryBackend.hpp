@@ -26,14 +26,23 @@
 #include <softadastra/discovery/core/DiscoveryEnvelope.hpp>
 #include <softadastra/discovery/encoding/DiscoveryDecoder.hpp>
 #include <softadastra/discovery/encoding/DiscoveryEncoder.hpp>
+#if defined(_WIN32)
+#include <softadastra/discovery/platform/windows/UdpSocket.hpp>
+#else
 #include <softadastra/discovery/platform/linux/UdpSocket.hpp>
+#endif
 
 namespace softadastra::discovery::backend
 {
   namespace core = softadastra::discovery::core;
   namespace encoding = softadastra::discovery::encoding;
-  namespace platform = softadastra::discovery::platform::os_linux;
   namespace core_time = softadastra::core::time;
+
+#if defined(_WIN32)
+  namespace platform = softadastra::discovery::platform::os_windows;
+#else
+  namespace platform = softadastra::discovery::platform::os_linux;
+#endif
 
   /**
    * @brief UDP discovery backend.
