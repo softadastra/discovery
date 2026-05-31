@@ -78,14 +78,13 @@ namespace softadastra::discovery::core
     /**
      * @brief Returns true if the context is usable.
      *
-     * @return true when config and transport engine are present and valid.
+     * @return true when config and transport engine are present.
      */
     [[nodiscard]] bool is_valid() const noexcept
     {
       return config != nullptr &&
              transport != nullptr &&
-             config->is_valid() &&
-             transport->is_running();
+             config->is_valid();
     }
 
     /**
